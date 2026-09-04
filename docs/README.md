@@ -27,6 +27,7 @@ live scan, exclusion threshold).
 
 | | |
 |---|---|
+| [engine-protocol.md](engine-protocol.md) | The wire between this plugin and its C++ sweep engine: frames, commands, and what the adapter reads. |
 | [testing.md](testing.md) | The three checks, faking hardware you don't have, what's worth asserting. |
 | [running-in-soundbase.md](running-in-soundbase.md) | Where the folder goes, the feature flag, the plugin manager, the logs. |
 | [native-runtimes.md](native-runtimes.md) | Native libraries, bundled interpreters, code signing. **Read this before designing anything that needs one.** |
@@ -54,5 +55,6 @@ these pages and those documents disagree, the documents are right.
 [`examples/network-analyzer/`](../examples/network-analyzer/README.md) is a
 complete second plugin: a networked instrument over TCP, with discovery by
 probing, addressing from device config, device controls, clamping, a fatal
-transport error, and a fake instrument its tests run against. It is the thing
-to read once the synthetic template stops being enough.
+transport error, and a fake instrument its tests run against. It came with the
+template and is kept because it is the shortest complete example of the
+contract; `adapter.js` in the repository root is the real one.

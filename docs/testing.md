@@ -16,7 +16,7 @@ know which layer is broken.
 
 ## Why the tests go through the shell
 
-`__tests__/template.test.js` does not call your adapter directly. It boots
+`__tests__/usrp.test.js` does not call the adapter directly. It boots
 `main.js`, gets a real HTTP server on a real port, and makes real requests:
 
 ```js
@@ -29,13 +29,25 @@ between "my adapter returns the right thing" and "the contract carries it
 correctly" — a trace whose length disagrees with `pointCount`, a config echo
 the shell cannot build an effective configuration from, a device announcing a
 product the manifest never declared. Testing through the shell catches all of
-those, and it means the tests keep their meaning when your adapter stops being
-synthetic and starts talking to hardware. **They are written against the
-contract, not against the signal source.**
+those, and it means the tests keep their meaning whatever is on the other end
+of the adapter. **They are written against the contract, not against the signal
+source** — which is why the same suite covers a real B206mini and the fake
+engine, with `SB_USRP_MOCK=1` the only difference.
 
-Keep them passing as you replace `adapter.js`. When one starts failing because
-your hardware genuinely behaves differently, change the assertion — do not
-delete the test.
+Two things here are worth copying into any plugin over native code:
+
+- **The fake is on the wire, not in the code.** `driver/fake-engine.js` is a
+  separate process speaking the engine's own protocol, so the tests exercise
+  spawning, the socket, frame reassembly and supervision — everything except
+  libuhd. A fake injected at the driver's API would prove much less.
+- **The failure path is a test.** `__tests__/engine-failure.test.js` kills the
+  engine mid-sweep and asserts that the device is marked failed, that the
+  plugin is still serving, and that the next operation recovers. That sequence
+  is the whole reason the engine is a child process, and it is not something to
+  find out about during a show.
+
+When one starts failing because the hardware genuinely behaves differently,
+change the assertion — do not delete the test.
 
 ## Why `npm run smoke` is separate, and why it matters most
 

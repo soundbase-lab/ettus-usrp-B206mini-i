@@ -7,3 +7,6 @@ runtime/
 # CPython bytecode, regenerated per interpreter version
 __pycache__/
 *.pyc
+
+# the sweep engine build tree
+engine/build/

@@ -214,9 +214,9 @@ or after a host restart.
 ## Poking at a running plugin
 
 ```bash
-npm start                 # note the port from the handshake line
+SB_USRP_MOCK=1 npm start  # note the port from the handshake line
 PORT=54321
-DEV=synthetic%3A1
+DEV=usb%3AFAKE001
 
 curl -s localhost:$PORT/health
 curl -s localhost:$PORT/info
@@ -224,7 +224,7 @@ curl -s localhost:$PORT/devices
 
 curl -s -X POST localhost:$PORT/devices/$DEV/configuration \
   -H 'content-type: application/json' \
-  -d '{"startHz":470000000,"stopHz":616000000,"pointCount":11}'
+  -d '{"startHz":470000000,"stopHz":608000000,"pointCount":11}'
 curl -s -X POST localhost:$PORT/devices/$DEV/sweep/start
 curl -s localhost:$PORT/devices/$DEV/trace
 curl -N localhost:$PORT/events        # watch lifecycle events

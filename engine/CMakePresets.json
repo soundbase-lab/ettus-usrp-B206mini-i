@@ -1,0 +1,25 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "mac-dev",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/mac-dev",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "CMAKE_PREFIX_PATH": "/opt/homebrew" }
+    },
+    {
+      "name": "pi-release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/pi-release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "CMAKE_PREFIX_PATH": "/usr/local" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "mac-dev", "configurePreset": "mac-dev" },
+    { "name": "pi-release", "configurePreset": "pi-release" }
+  ],
+  "testPresets": [
+    { "name": "mac-dev", "configurePreset": "mac-dev", "output": { "outputOnFailure": true } },
+    { "name": "pi-release", "configurePreset": "pi-release", "output": { "outputOnFailure": true } }
+  ]
+}

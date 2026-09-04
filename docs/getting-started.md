@@ -82,19 +82,20 @@ curl localhost:54321/health
 curl localhost:54321/devices
 ```
 
-The template ships a **synthetic** analyzer: a noise floor with two carriers
-and a transient that appears on one sweep in seven. It exists so the entire
-path — discovery, configuration, sweeping, trace geometry, max-hold
-accumulation — works before you own any hardware.
+This plugin drives a real radio, so start it in **mock mode** to poke at it
+without one: `SB_USRP_MOCK=1 npm start` serves a synthetic UHF scene — a noise
+floor, a DTV pedestal, a few carriers and a transmitter that keys up on one
+sweep in seven — through the whole production path, with only libuhd replaced.
+The mock radio's serial is `FAKE001`; a real one appears under its own.
 
 Take a sweep from it:
 
 ```bash
 PORT=54321
-DEV=synthetic%3A1
+DEV=usb%3AFAKE001
 curl -s -X POST localhost:$PORT/devices/$DEV/configuration \
   -H 'content-type: application/json' \
-  -d '{"startHz":470000000,"stopHz":616000000,"pointCount":11}'
+  -d '{"startHz":470000000,"stopHz":608000000,"pointCount":11}'
 curl -s -X POST localhost:$PORT/devices/$DEV/sweep/start
 curl -s localhost:$PORT/devices/$DEV/trace
 ```
@@ -170,54 +171,58 @@ written against this contract. Anything you are tempted to put there belongs in
 
 ## 6. A first change, end to end
 
-Give the synthetic analyzer a control, so you can watch a knob you invented
-appear in the contract without SoundBase knowing anything about it.
+Device controls are the part worth understanding first, because they are how a
+device gets a knob SoundBase has never heard of without a SoundBase release.
+This plugin declares six of them — gain mode, RX gain, dwell, detector, antenna
+port and acquisition profile — and the whole mechanism is visible in three
+places in `adapter.js`.
 
-In `adapter.js`, return one from `open()`:
+**Declared from `open()`**, not from the manifest, so the ranges can come from
+the radio that just answered:
 
 ```js
-async open() {
-  return {
-    capabilities: {
-      minFrequencyHz: MIN_FREQUENCY_HZ,
-      maxFrequencyHz: MAX_FREQUENCY_HZ,
-      rbwHz: [...RBW_HZ],
-      controls: [
-        { id: 'attenDb', type: 'number', label: 'Attenuation',
-          unit: 'dB', default: 0, min: 0, max: 30, step: 5 },
-      ],
-    },
-    identity: { model: 'Synthetic', firmware: '0.1.0' },
-  };
+controls: [
+  { id: 'gainDb', type: 'number', label: 'RX gain', unit: 'dB',
+    default: 50, min: 0, max: maxGainDb, step: 1 },
+  …
+]
+```
+
+**Read in `applyConfig`, clamped, and sent on to the engine** — `#controlPlan`
+turns `cfg.controls` into plan fields and drops anything the engine would not
+accept:
+
+```js
+if (isNum(controls.gainDb)) {
+  plan.gainDb = Math.round(clamp(controls.gainDb, GAIN_MIN_DB, GAIN_MAX_DB));
 }
 ```
 
-Read it in `applyConfig`, clamp it, and echo what you settled on:
+**Echoed as the hardware settled on it**, from the engine's `applied` reply
+rather than from the request:
 
 ```js
-async applyConfig(cfg = {}) {
-  // …existing range and point handling…
-  const requested = cfg.controls?.attenDb;
-  if (requested !== undefined) {
-    this.attenDb = Math.min(30, Math.max(0, Math.round(Number(requested))));
-  }
-  return { ...this.config, controls: { attenDb: this.attenDb ?? 0 } };
-}
+effective.controls = { gainMode: this.plan.gainMode, gainDb: this.plan.gainDb, … };
 ```
 
-Subtract it in `buildTrace` (`amp -= this.attenDb ?? 0`), then:
+Try it against the mock radio:
 
 ```bash
-npm start
-curl -s -X POST localhost:<port>/devices/synthetic%3A1/configuration \
+SB_USRP_MOCK=1 npm start
+curl -s -X POST localhost:<port>/devices/usb%3AFAKE001/configuration \
   -H 'content-type: application/json' \
-  -d '{"controls":{"attenDb":42}}'
+  -d '{"controls":{"gainMode":"manual","gainDb":500}}'
 ```
 
-You get `{"controls":{"attenDb":30}}` back — clamped, not rejected — and in
-SoundBase that control renders as a form field beside RBW and point count.
-Nothing in SoundBase was changed or rebuilt to make that happen, and nothing in
-SoundBase knows what attenuation is.
+You get `"gainDb":76` back — clamped, not rejected — and in SoundBase that
+control renders as a form field beside RBW and point count. Nothing in
+SoundBase was changed or rebuilt to make that happen, and nothing in SoundBase
+knows what a USRP's RX gain is.
+
+To add a seventh control, do the same three things and add the two tests that
+`__tests__/usrp.test.js` already has for the others: one that a value outside
+the range comes back clamped, and one that a request carrying only that control
+leaves the rest in force.
 
 ## 7. See it in the app
 

@@ -1,7 +1,7 @@
 {
-  "name": "soundbase-plugin-template",
-  "version": "0.1.1",
-  "description": "Starting point for a SoundBase plugin: a synthetic spectrum analyzer served by the plugin shell.",
+  "name": "soundbase-plugin-ettus-usrp-b206mini-i",
+  "version": "0.1.0",
+  "description": "SoundBase plugin for the Ettus USRP B206mini-i: UHF spectrum sweeps for frequency coordination, driven by a C++ sweep engine over libuhd.",
   "license": "BUSL-1.1",
   "type": "module",
   "main": "main.js",
@@ -10,6 +10,8 @@
   },
   "scripts": {
     "start": "node main.js",
+    "build:engine": "node scripts/build-engine.mjs",
+    "find": "node scripts/find-radios.mjs",
     "test": "node --test __tests__/*.test.js examples/*/__tests__/*.test.js",
     "doctor": "node scripts/doctor.mjs",
     "manifest": "node scripts/validate-manifest.mjs",

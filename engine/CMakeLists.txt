@@ -1,0 +1,48 @@
+cmake_minimum_required(VERSION 3.25)
+project(scanner_engine LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 11)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+cmake_policy(SET CMP0167 NEW)
+find_package(UHD 4.9 REQUIRED)
+find_package(Threads REQUIRED)
+
+# ---- vendored pffft (float path only)
+add_library(pffft STATIC third_party/pffft/pffft.c third_party/pffft/pffft_common.c)
+target_include_directories(pffft PUBLIC third_party/pffft)
+target_compile_definitions(pffft PUBLIC PFFFT_ENABLE_FLOAT)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+  target_compile_definitions(pffft PUBLIC PFFFT_ENABLE_NEON)
+endif()
+target_compile_options(pffft PRIVATE -O3 -fno-strict-aliasing -Wno-unused-function)
+
+# ---- engine core library (no main)
+add_library(engine_core STATIC
+  src/common.cpp src/profile.cpp src/protocol.cpp src/fft_pffft.cpp src/dsp.cpp src/cal.cpp src/cal_uhd.cpp
+  src/sweep_planner.cpp src/stitch.cpp src/usrp.cpp src/socket.cpp src/engine.cpp)
+target_include_directories(engine_core PUBLIC src third_party)
+target_link_libraries(engine_core PUBLIC pffft UHD::uhd Threads::Threads)
+target_compile_options(engine_core PRIVATE -Wall -Wextra -Wno-unused-parameter -O2)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+  target_compile_options(engine_core PRIVATE -mcpu=native)
+endif()
+
+add_executable(engine src/main.cpp)
+target_link_libraries(engine PRIVATE engine_core)
+
+# ---- tests (no hardware)
+enable_testing()
+add_executable(test_protocol tests/test_protocol.cpp)
+target_link_libraries(test_protocol PRIVATE engine_core)
+add_test(NAME protocol COMMAND test_protocol)
+add_executable(test_dsp tests/test_dsp.cpp)
+target_link_libraries(test_dsp PRIVATE engine_core)
+add_test(NAME dsp COMMAND test_dsp)
+add_executable(test_planner tests/test_planner.cpp)
+target_link_libraries(test_planner PRIVATE engine_core)
+add_test(NAME planner COMMAND test_planner)
