@@ -262,3 +262,24 @@ test('the device closes cleanly and is discovered again', async () => {
   assert.equal(reopened.status, 200);
   assert.equal(reopened.body.pointCount, POINT_COUNT);
 });
+
+// Core 1.1: the radio's conditions ride on the device status as `warnings`,
+// without changing the status. The fake radio is uncalibrated, which is an
+// `info` — worth knowing, the trace is fine — so that is what a healthy mock
+// reports, and the only thing it reports.
+test('the radio’s conditions reach the host as warnings on an ok status', async () => {
+  await configure({});
+  const deadline = Date.now() + 5_000;
+  let device;
+  for (;;) {
+    ({ body: { devices: [device] } } = await request('GET', '/devices'));
+    if (device?.status?.warnings?.length || Date.now() > deadline) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.equal(device.status.status, 'ok', 'a warning is not a failure');
+  assert.deepEqual(
+    device.status.warnings.map((w) => [w.id, w.severity]),
+    [['uncalibrated', 'info']]
+  );
+  assert.match(device.status.warnings[0].message, /Relative readings/);
+});

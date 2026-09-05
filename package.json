@@ -25,8 +25,8 @@
     "pack:release": "node scripts/pack-release.mjs"
   },
   "dependencies": {
-    "@soundbase/plugin-contract": "^0.2.0",
-    "@soundbase/plugin-shell": "^0.2.0"
+    "@soundbase/plugin-contract": "^0.4.0",
+    "@soundbase/plugin-shell": "^0.4.0"
   },
   "soundbase": {
     "template": {
