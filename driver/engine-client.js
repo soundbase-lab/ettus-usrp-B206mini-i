@@ -95,6 +95,13 @@ export class EngineClient {
       );
     }
     await this.#listen();
+    // stop() can arrive while the socket is still being set up — a device added
+    // and removed in the same second. Spawning after that point produces an
+    // engine nobody holds a reference to, which keeps the radio for the life of
+    // the plugin and, in a test run, keeps the process alive for ever.
+    if (this.#stopping) {
+      throw new EngineError('the sweep engine was shut down while starting');
+    }
 
     const ready = new Promise((resolve, reject) => {
       let settled = false;
@@ -217,6 +224,7 @@ export class EngineClient {
   }
 
   #spawn() {
+    if (this.#stopping) return;
     const args = [
       '--socket',
       this.socketPath,

@@ -73,12 +73,17 @@ let warnedPlatform = false;
 /**
  * The USRPs attached right now.
  *
- * `engine --find` reads USB descriptors and never claims a radio, so this is
- * safe to call while a sweep is running — but SoundBase polls it once a second
- * while a device picker is open, so the result is cached for a couple of
- * seconds and a radio this plugin already has open is reported from memory
- * rather than re-enumerated. A machine with no USRP attached returns nothing,
- * which is a normal answer and not worth an error per second.
+ * `engine --find` reads USB descriptors and never claims a radio, so it is
+ * safe to call while a sweep is running. It also cannot see a radio that is
+ * already open — a claimed B200 does not answer enumeration at all — so a
+ * radio this plugin has claimed is reported from `openRadios` rather than
+ * re-enumerated. That is not an optimisation: without it, every device would
+ * disappear from the list seconds after it started working.
+ *
+ * SoundBase polls this once a second while a device picker is open, so the
+ * enumeration itself is cached for a couple of seconds. A machine with no USRP
+ * attached returns nothing, which is a normal answer and not worth an error
+ * per second.
  */
 export async function discoverDevices(pluginConfig = {}) {
   // Said once, not once a second: discovery is polled, and a plugin that logs
@@ -186,6 +191,9 @@ class UsrpAnalyzerAdapter {
     // reporting and that has no adapter yet — which is exactly what this
     // device is until open() returns. Miss that window and the device vanishes
     // mid-open, and the next request 404s.
+    if (this.serial) {
+      openRadios.set(this.serial, { serial: this.serial, product: 'USRP' });
+    }
     try {
       return await this.#open(binPath);
     } catch (err) {
@@ -211,9 +219,13 @@ class UsrpAnalyzerAdapter {
       this.onFatal?.(err);
     };
     engine.onSweep = (frame) => this.#onSweep(frame);
+    // Held from here rather than after start() resolves, so a close() that
+    // arrives while the engine is still coming up still stops it. Otherwise a
+    // device added and removed inside those few seconds leaves an engine
+    // holding the radio for the rest of the plugin's life.
+    this.engine = engine;
 
     const status = await engine.start();
-    this.engine = engine;
     this.plan = status.plan ?? null;
 
     const info = status.device ?? {};

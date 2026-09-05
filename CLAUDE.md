@@ -74,6 +74,12 @@ plugin↔engine wire.
   descriptors only; it is polled once a second while a device picker is open,
   sometimes while a sweep is running. Do not make discovery open a device,
   and do not make it noisy — nothing attached is a normal result.
+- **A claimed radio is invisible to enumeration**, so `discoverDevices` merges
+  in `openRadios`, and `open()` adds to it *before* spawning the engine. The
+  shell removes a discovered device that discovery stops reporting and that has
+  no adapter yet, which is exactly what a device is while it is opening. See
+  `__tests__/discovery.test.js`; the symptom of getting it wrong is a device
+  that works once and then 404s.
 - **The two frame codecs must agree.** `engine/src/protocol.cpp` writes the
   format and `driver/frames.js` reads it. Change one and regenerate the golden
   frames (`engine/build/engine --emit-fixtures __tests__/fixtures`); a silent

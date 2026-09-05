@@ -31,8 +31,9 @@ test('a radio being opened stays in the device list while it is unenumerable', a
   assert.deepEqual(await discoverDevices({}), []);
 
   const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, { mock: true });
+  let opening;
   try {
-    const opening = adapter.open();
+    opening = adapter.open();
     // mid-open: the engine may already have the radio, and the shell has no
     // adapter recorded — this is the window the device used to disappear in
     const during = await discoverDevices({});
@@ -46,9 +47,31 @@ test('a radio being opened stays in the device list while it is unenumerable', a
     const after = await discoverDevices({});
     assert.deepEqual(after.map((d) => d.id), [DEVICE_ID]);
   } finally {
+    // Let the open settle before closing, so a failed assertion above tears the
+    // engine down instead of leaving one running and hanging the whole run.
+    await opening?.catch(() => {});
     await adapter.close();
   }
 
   // released: with enumeration still empty, it is genuinely gone
   assert.deepEqual(await discoverDevices({}), []);
+});
+
+// The other half of that window: a device added and removed before the engine
+// has finished coming up. Closing has to stop an engine that is still starting,
+// or it keeps the radio for the life of the plugin — invisibly, because nothing
+// holds a reference to it any more.
+test('closing while the engine is still starting leaves nothing running', async () => {
+  const { createSpectrumAnalyzerAdapter } = await import('../adapter.js');
+  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, { mock: true });
+
+  const opening = adapter.open();
+  await adapter.close();
+
+  await assert.rejects(
+    () => opening,
+    /shut down|not running/,
+    'open() resolved after close(), so something is still running'
+  );
+  assert.equal(adapter.engine, null);
 });
