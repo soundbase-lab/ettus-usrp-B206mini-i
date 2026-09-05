@@ -66,3 +66,15 @@ test('CI runs exactly the platforms that are declared', () => {
   }).trim();
   assert.ok(runners.includes(primary), `${primary} is not in the matrix`);
 });
+
+// A Lab install carries the engine's source and no binary, so the plugin's own
+// status is what tells the user to build it. main.js reports this from init()
+// and every configUpdated(), and it has to clear once the user fixes it.
+test('the plugin reports a missing engine as bad-config, and clears it', async () => {
+  const { engineStatus } = await import('../driver/locate.js');
+  const missing = engineStatus({ enginePath: '/nonexistent/engine' });
+  assert.equal(missing.ok, false);
+  assert.match(missing.message, /npm run build:engine/);
+  assert.match(missing.message, /\/nonexistent\/engine/, 'names the path it looked at');
+  assert.equal(engineStatus({ mock: true }).ok, true, 'mock mode needs no build');
+});

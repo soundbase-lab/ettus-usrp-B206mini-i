@@ -55,6 +55,39 @@ room. It never opens a USRP and never claims to have measured anything.
 To use it for real, put this folder where SoundBase looks for plugins and
 restart it — [docs/running-in-soundbase.md](docs/running-in-soundbase.md).
 
+### Installing from the Lab
+
+A release zip carries the engine's **source**, not a binary: the engine links
+against whatever UHD is installed on your machine, and a binary built anywhere
+else would not load against it (see *Why there is no prebuilt engine* below).
+So after installing from the Lab there is one step to do once, in the plugin's
+folder:
+
+```sh
+npm run build:engine
+```
+
+Until then the plugin shows **bad-config** in SoundBase's plugin manager with
+that instruction as its status message, and lists no devices. Ticking
+*Simulate a radio* in the plugin's settings clears it without a build, if you
+want to see the plugin working first.
+
+#### Why there is no prebuilt engine
+
+It is not laziness. The engine links dynamically against libuhd, and the
+binary has to match the UHD on the machine it runs on:
+
+- GitHub's Ubuntu runners ship UHD **4.6**, below the 4.9 the B206mini-i
+  needs, so a Linux build cannot even be produced there with system packages.
+- A macOS build against Homebrew UHD hard-codes that dylib's path and version;
+  a machine with UHD 4.9, or an Intel prefix, fails at load time with a
+  message about a missing library.
+- The Raspberry Pi target builds UHD from source into `/usr/local`.
+
+Bundling libuhd itself is the thing
+[docs/native-runtimes.md](docs/native-runtimes.md) tells you not to attempt.
+Building where UHD lives is the honest option, and it takes about a minute.
+
 ## What it does
 
 | | |
@@ -215,6 +248,20 @@ take roughly five times as long.
 Anything the engine says at warning level or above is written to the plugin's
 log, which SoundBase can open — including UHD's own overflow and timeout
 complaints, which are the first sign of a USB port that cannot keep up.
+
+## Cutting a release
+
+The Release workflow publishes only from a **tag**; running it by hand
+(`workflow_dispatch`) is a rehearsal that builds and uploads the zip as a
+workflow artifact without creating a Release. To publish:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The tag must match `version` in both `soundbase-plugin.json` and
+`package.json` — the pack step refuses otherwise. Then, in the Lab: *my
+submissions → update release → v0.1.0*.
 
 ## Licence
 

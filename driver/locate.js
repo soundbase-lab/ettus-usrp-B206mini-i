@@ -72,6 +72,25 @@ export function resolveEngineBinary(pluginConfig = {}) {
 }
 
 /**
+ * Whether the plugin has an engine it can actually run — the plugin-level
+ * answer main.js reports as its status, so a Lab install that has not been
+ * built yet says so in the plugin manager rather than listing no devices.
+ */
+export function engineStatus(pluginConfig = {}) {
+  const binPath = resolveEngineBinary(pluginConfig);
+  if (!binPath) {
+    return { ok: false, message: `The sweep engine is not built: ${BUILD_HINT}.` };
+  }
+  if (!isFile(binPath)) {
+    return {
+      ok: false,
+      message: `The configured engine binary does not exist: ${binPath}. Clear the "Engine binary" setting to use the built-in one, or ${BUILD_HINT}.`,
+    };
+  }
+  return { ok: true, message: '' };
+}
+
+/**
  * The USRPs attached right now, from `engine --find`.
  *
  * This reads USB descriptors only — it never claims a radio — so it is safe
