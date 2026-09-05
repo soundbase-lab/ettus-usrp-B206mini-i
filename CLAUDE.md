@@ -78,6 +78,11 @@ plugin↔engine wire.
   format and `driver/frames.js` reads it. Change one and regenerate the golden
   frames (`engine/build/engine --emit-fixtures __tests__/fixtures`); a silent
   disagreement produces a trace that looks plausible and is wrong.
+- **Platform support is declared once**, as `os` in `package.json`. npm
+  enforces it on install, `scripts/ci-platforms.mjs` builds the CI matrix from
+  it, `npm run doctor` checks it and `adapter.js` refuses an open with the
+  reason. Do not hardcode a platform list anywhere else, and do not add a
+  Windows job "to see": the engine needs Unix domain sockets and `flock(2)`.
 - **Echo the engine's `applied`, never the request.** The engine quantises the
   span onto its grid, the RBW onto what the FFT realises and the gain to an
   integer. Its reply is the only account of what is really in force.

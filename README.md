@@ -180,9 +180,23 @@ falls back to proving boot and handshake when nothing is.
 Developed on macOS (Apple silicon, Homebrew UHD 4.10) and deployed on a
 Raspberry Pi 5 running Raspberry Pi OS. Both are exercised regularly.
 
-**Windows is not supported.** The engine uses Unix domain sockets and `flock`,
-and has never been built there. This is a real limitation, not an oversight
+**Windows is not supported.** The engine is reached over a Unix domain socket
+and guards the radio with `flock(2)`, neither of which Windows has; Node cannot
+deliver a real `SIGTERM` there either. Supporting it means porting the engine's
+IPC, not changing a setting. This is a real limitation, not an oversight
 waiting to be tidied up.
+
+That is declared once, as `os` in `package.json` — npm's own field:
+
+- `npm install` refuses on any other platform, with npm's own `EBADPLATFORM`
+- CI builds its OS matrix from it (`scripts/ci-platforms.mjs`), so there is no
+  Windows job to fail
+- `npm run doctor` reports it first, before every later check turns into noise
+- the adapter refuses to open a device with that sentence, so a user sees the
+  reason in the device's status instead of `listen EACCES` from the socket layer
+
+To change the supported set, edit that one field; `__tests__/platform.test.js`
+checks that everything downstream still agrees with it.
 
 The radio wants a USB 3 port. On USB 2 everything still works — the plugin
 detects the link speed and offers only the profiles that fit it — but sweeps

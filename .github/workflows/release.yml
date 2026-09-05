@@ -28,8 +28,25 @@ permissions:
   contents: write # to create the Release
 
 jobs:
-  release:
+  # Packing is platform-independent, but installing is not: npm refuses to
+  # install a package whose `os` does not include the runner's platform. So the
+  # runner comes from the same declaration CI's matrix does — see
+  # scripts/ci-platforms.mjs.
+  platforms:
     runs-on: ubuntu-latest
+    outputs:
+      primary: ${{ steps.list.outputs.primary }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - id: list
+        run: echo "primary=$(node scripts/ci-platforms.mjs --primary)" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: platforms
+    runs-on: ${{ needs.platforms.outputs.primary }}
     steps:
       - uses: actions/checkout@v6
 

@@ -24,6 +24,10 @@ import {
   resolveEngineBinary,
 } from './driver/locate.js';
 import {
+  platformSupported,
+  unsupportedPlatformMessage,
+} from './driver/platform.js';
+import {
   ANTENNAS,
   DETECTORS,
   DEVICE_MAX_HZ,
@@ -56,6 +60,7 @@ const openRadios = new Map();
 let lastFind = { at: 0, radios: [] };
 let findInFlight = null;
 let warnedNoEngine = false;
+let warnedPlatform = false;
 
 /**
  * The USRPs attached right now.
@@ -68,6 +73,16 @@ let warnedNoEngine = false;
  * which is a normal answer and not worth an error per second.
  */
 export async function discoverDevices(pluginConfig = {}) {
+  // Said once, not once a second: discovery is polled, and a plugin that logs
+  // an error per poll buries the line that matters.
+  if (!platformSupported()) {
+    if (!warnedPlatform) {
+      warnedPlatform = true;
+      process.stderr.write(`[usrp] ${unsupportedPlatformMessage()}\n`);
+    }
+    return [];
+  }
+
   const binPath = resolveEngineBinary(pluginConfig);
   if (!binPath) {
     if (!warnedNoEngine) {
@@ -148,6 +163,11 @@ class UsrpAnalyzerAdapter {
    * that is simply not offered.
    */
   async open() {
+    // A device added by hand reaches open() without going through discovery,
+    // so the platform check belongs on both paths. Throwing here is what puts
+    // the reason in the device's status, where the user will see it.
+    if (!platformSupported()) throw new Error(unsupportedPlatformMessage());
+
     const binPath = resolveEngineBinary(this.pluginConfig);
     if (!binPath) {
       throw new Error(`The sweep engine is not built: ${BUILD_HINT}.`);

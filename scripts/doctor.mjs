@@ -17,6 +17,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  SUPPORTED_PLATFORMS,
+  platformName,
+  platformSupported,
+  unsupportedPlatformMessage,
+} from '../driver/platform.js';
 
 const ROOT_URL = new URL('..', import.meta.url);
 const ROOT = fileURLToPath(ROOT_URL);
@@ -67,6 +73,22 @@ else
     `node ${process.versions.node} is too old`,
     'the shell needs Node 20 or newer'
   );
+
+// First, because on an unsupported platform every later check is noise: the
+// tests, the smoke check and the plugin itself all fail for this one reason.
+if (SUPPORTED_PLATFORMS.length === 0) {
+  ok(`${platformName()} — this plugin declares no platform restriction`);
+} else if (platformSupported()) {
+  ok(
+    `${platformName()} (supported: ${SUPPORTED_PLATFORMS.map(platformName).join(', ')})`
+  );
+} else {
+  bad(
+    unsupportedPlatformMessage(),
+    'develop and run it on a supported platform; `os` in package.json is where ' +
+      'that list is declared, and npm, CI and the adapter all read it from there'
+  );
+}
 
 // -- the SDK -----------------------------------------------------------------
 
