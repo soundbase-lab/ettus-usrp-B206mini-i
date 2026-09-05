@@ -211,6 +211,39 @@ if ((manifest?.maintainers ?? []).some((m) => m?.name === 'Your Name')) {
   );
 }
 
+// -- the lockfile ------------------------------------------------------------
+//
+// `npm run rename` and a version bump edit package.json and not the lockfile,
+// which then still names the template. Nothing complains until the release
+// workflow runs an npm command that normalises it, finds the tree dirty, and
+// refuses to pack — on the tag, which is the worst moment to find out.
+
+section('lockfile');
+
+if (!has('package-lock.json')) {
+  warn(
+    'no package-lock.json',
+    'run `npm install` and commit the lockfile so CI takes the reproducible path'
+  );
+} else {
+  const pkg = JSON.parse(read('package.json'));
+  const lock = JSON.parse(read('package-lock.json'));
+  const root = lock.packages?.[''] ?? {};
+  const stale =
+    lock.name !== pkg.name ||
+    lock.version !== pkg.version ||
+    root.name !== pkg.name ||
+    root.version !== pkg.version;
+  if (stale) {
+    bad(
+      `package-lock.json describes ${lock.name} ${lock.version}, package.json is ${pkg.name} ${pkg.version}`,
+      'npm install --package-lock-only, then commit the lockfile'
+    );
+  } else {
+    ok(`package-lock.json matches ${pkg.name} ${pkg.version}`);
+  }
+}
+
 // -- the entrypoint ----------------------------------------------------------
 
 section('entrypoint');

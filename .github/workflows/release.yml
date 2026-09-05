@@ -73,8 +73,11 @@ jobs:
 
       # Nothing installs dependencies on the user's machine, so they travel in
       # the zip — and dev dependencies have no business being in there.
+      # `--no-save`, because prune otherwise rewrites package-lock.json, and the
+      # pack step refuses to pack a tree with uncommitted changes — correctly:
+      # it must never be possible to release something that is not in git.
       - name: Drop dev dependencies
-        run: npm prune --omit=dev
+        run: npm prune --omit=dev --no-save
 
       # Packs, boots the packed folder the way the installer's probe does, and
       # refuses anything the Lab would reject. On a tag it also insists the
