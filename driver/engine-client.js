@@ -42,6 +42,8 @@ export class EngineError extends Error {
 export class EngineClient {
   /** Called with each complete sweep frame. */
   onSweep = null;
+  /** Called with each status object the engine sends (about once a second). */
+  onStatus = null;
   /** Called once when the engine dies or stops answering, never for a requested stop. */
   onFatal = null;
   /** Called with { level, msg } for anything the engine says. */
@@ -332,6 +334,7 @@ export class EngineClient {
           this.status = frame.json;
           this.#armHealthTimer();
           this.#onReady?.(frame.json);
+          this.onStatus?.(frame.json);
         } else if (type === 'applied') {
           const waiter = this.#applyWaiters.shift();
           waiter?.done();

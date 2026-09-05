@@ -3,10 +3,10 @@ import { createSpectrumAnalyzerAdapter, discoverDevices } from './adapter.js';
 
 class Plugin extends SoundBasePlugin {
   // The one thing this plugin has to say about itself as a whole: a Lab
-  // install carries the engine's source but not a binary, so until it is built
-  // there are no devices and nothing to explain why. Surface that as the
-  // plugin's own status, where the user is already looking. Never throws:
-  // ticking "Simulate a radio" or setting "Engine binary" clears it.
+  // install carries the engine's source and no binary, because the engine has
+  // to be compiled against the UHD on this machine. So the plugin builds it,
+  // and reports progress as its own status — where the user is already
+  // looking. Never throws; never blocks the host. See driver/engine-build.js.
   async init(pluginConfig) {
     await this.reportEngine(pluginConfig);
   }
@@ -16,9 +16,11 @@ class Plugin extends SoundBasePlugin {
   }
 
   async reportEngine(pluginConfig) {
-    const { engineStatus } = await import('./driver/locate.js');
-    const { ok, message } = engineStatus(pluginConfig);
-    this.updateStatus(ok ? 'ok' : 'bad-config', message);
+    const { reconcileEngine } = await import('./driver/engine-build.js');
+    const decided = reconcileEngine(pluginConfig, (status, message) =>
+      this.updateStatus(status, message)
+    );
+    if (decided === 'building') this.log('info', 'building the sweep engine');
   }
 
   async discoverDevices() {

@@ -31,6 +31,7 @@ driver/
   plan.js               geometry: engine cells ↔ SoundBase points
   locate.js             finding the engine binary, and finding radios
   fake-engine.js        the same wire, with no radio attached
+  warnings.js           engine status → the contract's warnings (three severities)
 engine/                 the C++ sweep engine, vendored from usrp-scanner
 __tests__/              contract tests through the real shell, plus golden frames
 examples/network-analyzer/   a second complete plugin, over TCP, with a fake device
@@ -106,8 +107,18 @@ export function createSpectrumAnalyzerAdapter(device, pluginConfig) → {
   stopSweep()
   close()
   onFatal                → assigned by the shell; call it when the transport dies
+  onWarnings             → assigned by a core-1.1 shell; call it with the complete
+                           current set of { id, severity, message } — see driver/warnings.js
 }
 ```
+
+Warnings are a separate axis from status: a device stays `ok` while it reports
+`overload`. `driver/warnings.js` turns the engine's status object into the
+contract's three severities from the *user's* point of view — `info` (the trace
+is fine), `warning` (degraded, act if it persists), `critical` (do not trust
+the trace, or the hardware is at risk). Thresholds are named constants at the
+top of that file. `onWarnings` is optional-called (`?.`): the plugin runs
+unchanged under a core-1.0 shell, which never assigns it.
 
 `docs/adapter-reference.md` is the detailed version. The normative
 specification is installed, not guessed at:

@@ -2,29 +2,63 @@
   "manifestVersion": 1,
   "id": "ettus-usrp-b206mini-i",
   "name": "Ettus USRP B206mini-i",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "BUSL-1.1",
   "repository": "https://github.com/soundbase-lab/ettus-usrp-B206mini-i",
-  "maintainers": [{ "name": "Matt Dale", "email": "matt.dale@soundbase.app" }],
-  "contract": { "core": "1.0", "modules": { "SpectrumAnalyzer": "1.0" } },
-  "runtime": { "type": "node", "entrypoint": "main.js" },
-  "deployment": ["managed"],
-  "template": { "name": "soundbase-plugin-template", "version": "1.0.1" },
+  "maintainers": [
+    {
+      "name": "Matt Dale",
+      "email": "matt.dale@soundbase.app"
+    }
+  ],
+  "contract": {
+    "core": "1.0",
+    "modules": {
+      "SpectrumAnalyzer": "1.0"
+    }
+  },
+  "runtime": {
+    "type": "node",
+    "entrypoint": "main.js"
+  },
+  "deployment": [
+    "managed"
+  ],
+  "template": {
+    "name": "soundbase-plugin-template",
+    "version": "1.0.1"
+  },
   "products": [
     {
       "deviceTypeId": "plugin:ettus-usrp-b206mini-i/b206mini-i",
-      "manufacturer": { "id": "ettus-research", "name": "Ettus Research" },
+      "manufacturer": {
+        "id": "ettus-research",
+        "name": "Ettus Research"
+      },
       "model": {
         "id": "b206mini-i",
         "name": "B206mini-i",
         "displayName": "USRP B206mini-i"
       },
-      "family": { "id": "usrp-b200", "name": "USRP B200 series" },
-      "capabilities": { "spectrumAnalyzer": true },
-      "traits": { "isSpectrumAnalyzer": true }
+      "family": {
+        "id": "usrp-b200",
+        "name": "USRP B200 series"
+      },
+      "capabilities": {
+        "spectrumAnalyzer": true
+      },
+      "traits": {
+        "isSpectrumAnalyzer": true
+      }
     }
   ],
   "pluginConfigFields": [
+    {
+      "id": "engineNote",
+      "type": "static-text",
+      "label": "Sweep engine",
+      "help": "This plugin drives the radio through a small C++ engine that it builds on this machine the first time it runs, because the engine links against your installed UHD. That needs cmake and UHD 4.9 or newer (macOS: `brew install cmake ninja uhd`). Progress shows as the plugin's status; devices appear when the build finishes. To skip the build, point \"Engine binary\" at a build you already have, or tick \"Simulate a radio\"."
+    },
     {
       "id": "enginePath",
       "type": "textinput",

@@ -97,6 +97,7 @@ let grid = snapToGrid(plan.startHz, plan.stopHz, plan.rbwHz);
 let sweeping = false;
 let sweepId = 0;
 let seq = 0;
+let overflows = 0;
 let sweepTimer = null;
 const startedAt = Date.now();
 
@@ -245,7 +246,13 @@ function emitStatus() {
       calibrated: false,
       calSource: 'default',
       completedSweeps: sweepId,
-      overflows: 0,
+      // conditions the plugin turns into warnings, switchable for the tests:
+      //   SB_USRP_MOCK_OVERLOAD=1    clipping and a hot input
+      //   SB_USRP_MOCK_OVERFLOWS=1   the USB link dropping samples
+      overflows: process.env.SB_USRP_MOCK_OVERFLOWS === '1' ? ++overflows * 3 : 0,
+      clipFraction: process.env.SB_USRP_MOCK_OVERLOAD === '1' ? 0.12 : 0,
+      // "hot" means hot at the antenna: −18 dBm input, whatever the gain is
+      peakDbfs: process.env.SB_USRP_MOCK_OVERLOAD === '1' ? -18 - (10 - gainFor(plan)) : -30,
       uptimeS: (Date.now() - startedAt) / 1000,
     },
   });
@@ -266,6 +273,11 @@ function stopSweeping() {
 }
 
 function emitSweep() {
+  // SB_USRP_MOCK_STALL_AFTER_MS: the radio stops completing sweeps while its
+  // status keeps arriving — the shape of a wedged stream, as opposed to a
+  // dead engine, which is what onFatal covers
+  const stallAfter = Number(process.env.SB_USRP_MOCK_STALL_AFTER_MS);
+  if (stallAfter > 0 && Date.now() - startedAt > stallAfter) return;
   sweepId += 1;
   const { startHz, stepHz, binCount } = grid;
   const gainDb = gainFor(plan);

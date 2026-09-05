@@ -11,7 +11,10 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PLUGIN_ROOT = fileURLToPath(new URL('..', import.meta.url));
+export const PLUGIN_ROOT = fileURLToPath(new URL('..', import.meta.url));
+
+/** The build script, shipped in the pack so an installed copy can build itself. */
+export const BUILD_SCRIPT = path.join(PLUGIN_ROOT, 'scripts', 'build-engine.mjs');
 
 /**
  * The stand-in engine, used when the plugin is configured for mock mode. It is

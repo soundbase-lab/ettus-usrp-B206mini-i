@@ -16,6 +16,7 @@
 // docs/adapter-reference.md for what the shell expects back from here.
 
 import { EngineClient } from './driver/engine-client.js';
+import { WarningTracker } from './driver/warnings.js';
 import { LIVE_KIND_FOR_DETECTOR, liveTrace, maskOf } from './driver/frames.js';
 import {
   BUILD_HINT,
@@ -144,6 +145,12 @@ export function createSpectrumAnalyzerAdapter(device, pluginConfig) {
 class UsrpAnalyzerAdapter {
   /** Assigned by the shell; called when the engine dies unprompted. */
   onFatal = null;
+  /**
+   * Assigned by a shell that implements core 1.1; called with the complete
+   * current set of warnings whenever it changes. An older shell leaves it
+   * unassigned and the radio's conditions simply go unreported.
+   */
+  onWarnings = null;
 
   constructor(device, pluginConfig = {}) {
     this.device = device;
@@ -164,6 +171,8 @@ class UsrpAnalyzerAdapter {
     this.detector = 'rms';
     this.controls = null;
     this.capabilities = null;
+    this.warnings = new WarningTracker();
+    this.publishedWarnings = '[]';
   }
 
   /**
@@ -219,6 +228,10 @@ class UsrpAnalyzerAdapter {
       this.onFatal?.(err);
     };
     engine.onSweep = (frame) => this.#onSweep(frame);
+    engine.onStatus = (status) => {
+      this.warnings.onStatus(status);
+      this.#publishWarnings();
+    };
     // Held from here rather than after start() resolves, so a close() that
     // arrives while the engine is still coming up still stops it. Otherwise a
     // device added and removed inside those few seconds leaves an engine
@@ -499,12 +512,15 @@ class UsrpAnalyzerAdapter {
     this.onTrace = onTrace;
     if (this.sweeping) return;
     this.sweeping = true;
+    this.warnings.setSweeping(true);
     this.engine.send({ cmd: 'start' });
   }
 
   async stopSweep() {
     this.sweeping = false;
+    this.warnings.setSweeping(false);
     this.engine?.send({ cmd: 'stop' });
+    this.#publishWarnings();
   }
 
   async close() {
@@ -525,6 +541,7 @@ class UsrpAnalyzerAdapter {
    * instead — the next sweep is at most a few hundred milliseconds away.
    */
   #onSweep(frame) {
+    this.warnings.onSweep();
     if (!this.sweeping || !this.onTrace || !this.geometry) return;
     if (!sameGrid(frame, this.geometry)) return;
     const trace = liveTrace(frame, this.detector);
@@ -537,6 +554,20 @@ class UsrpAnalyzerAdapter {
       this.offsetDb
     );
     if (points) this.onTrace(points);
+  }
+
+  /**
+   * Hand the shell the radio's current conditions, if they changed. The shell
+   * diffs too, but the engine reports once a second and most seconds nothing
+   * has changed, so the cheap check happens here first.
+   */
+  #publishWarnings() {
+    if (!this.onWarnings) return;
+    const list = this.warnings.current();
+    const key = JSON.stringify(list.map((w) => [w.id, w.severity, w.message]));
+    if (key === this.publishedWarnings) return;
+    this.publishedWarnings = key;
+    this.onWarnings(list);
   }
 }
 

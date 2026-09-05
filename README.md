@@ -60,24 +60,20 @@ restart it — [docs/running-in-soundbase.md](docs/running-in-soundbase.md).
 A release zip carries the engine's **source**, not a binary: the engine links
 against whatever UHD is installed on your machine, and a binary built anywhere
 else would not load against it (see *Why there is no prebuilt engine* below).
-So after installing from the Lab there is one step to do once, **in the
-installed plugin's folder** — not in a checkout of this repository:
+So the plugin **builds it on first run**, on your machine, and shows progress as
+its own status in the plugin manager:
 
-```sh
-cd ~/Library/Application\ Support/SoundBase\ Desktop/plugins/ettus-usrp-b206mini-i   # macOS
-node scripts/build-engine.mjs
-```
+| Status | Meaning |
+|---|---|
+| *Building the sweep engine…* | compiling; about a minute the first time |
+| *ok* | done; devices appear on the next enumeration |
+| *bad-config: this machine needs cmake / UHD 4.9…* | install what it names (`brew install cmake ninja uhd` on macOS), then change any plugin setting to make it look again |
+| *bad-config: the sweep engine failed to build: …* | the compiler's last lines; the message also gives the manual command for the full output |
 
-(`npm run build:engine` is the same thing from a checkout of this repository.)
-
-Until then the plugin shows **bad-config** in SoundBase's plugin manager, and
-its status message carries that command with the exact folder filled in —
-copy it from there rather than from here, since the folder depends on the
-platform and on which SoundBase build you are running. If you already have a
-build in a checkout of this repository, the *Engine binary* plugin setting can
-point at it instead (`<checkout>/engine/build/engine`). Ticking
-*Simulate a radio* in the plugin's settings clears it without a build, if you
-want to see the plugin working first.
+Nothing compiles if you'd rather it didn't: point **Engine binary** at a build
+you already have (`<checkout>/engine/build/engine`), or tick **Simulate a
+radio**. The manual equivalent, in the installed plugin's folder, is
+`node scripts/build-engine.mjs` (`npm run build:engine` from a checkout).
 
 #### Why there is no prebuilt engine
 
@@ -121,6 +117,26 @@ generically:
 | **Detector** | which detector the reported trace comes from |
 | **Antenna port** | `RX2` or `TX/RX` |
 | **Acquisition profile** | sample rate and sub-window layout; `auto` picks from the USB link speed |
+
+### Warnings
+
+The radio tells you when the plot should not be taken at face value. Each
+condition is reported at one of three levels, which SoundBase shows as three
+colours beside the device — on the plot's live-scan strip, in the live-scan
+settings dialog, and in the plugin manager:
+
+| Level | Meaning | Reported when |
+|---|---|---|
+| **Info** (blue) | worth knowing; the trace is fine | levels are uncalibrated · the radio is on a USB 2 link |
+| **Warning** (amber) | the trace is degraded; act if it persists | input overload (clipping) · input above −20 dBm · sample overflows or capture timeouts on the USB link · board above 85 °C |
+| **Critical** (red) | do not trust the trace right now, or the hardware is at risk | input above the −15 dBm never-exceed level · the radio has stalled (status arrives, sweeps do not) · board above 95 °C |
+
+Each message says what is wrong and what to do about it. Warnings never change
+the device's status — a device stays *ok* while overloaded — and a condition
+disappears the moment it clears. The thresholds are named constants at the top
+of [driver/warnings.js](driver/warnings.js). This needs SoundBase's plugin
+contract 1.1; under an older host the plugin runs unchanged and the conditions
+go unreported.
 
 ### Configuration
 
