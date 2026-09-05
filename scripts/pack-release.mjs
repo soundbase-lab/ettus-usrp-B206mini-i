@@ -69,6 +69,12 @@ const NOT_SHIPPED = [
   'scripts',
 ];
 
+// Exceptions to the list above: files a user needs *in the installed folder*.
+// The engine is shipped as source because it has to be built against the UHD
+// on the user's machine, and the build script is what makes that one command
+// instead of a cmake incantation — so it travels, and so does its npm script.
+const SHIPPED_ANYWAY = ['scripts/build-engine.mjs'];
+
 const log = (msg) => process.stdout.write(`[pack-release] ${msg}\n`);
 const warn = (msg) => process.stdout.write(`[pack-release] WARNING: ${msg}\n`);
 const fail = (msg) => {
@@ -171,7 +177,7 @@ if (tracked === null) fail('not a git repository, or git is unavailable');
 const shipped = tracked
   .split('\n')
   .filter(
-    (f) => f && !NOT_SHIPPED.some((n) => f === n || f.startsWith(`${n}/`))
+    (f) => f && (SHIPPED_ANYWAY.includes(f) || !NOT_SHIPPED.some((n) => f === n || f.startsWith(`${n}/`)))
   );
 for (const f of shipped) {
   mkdirSync(dirname(join(packDir, f)), { recursive: true });
@@ -195,7 +201,13 @@ cpSync(join(ROOT, 'node_modules'), join(packDir, 'node_modules'), {
 const packed = { ...pkg };
 // `test` needs the __tests__ that were just left out and the rest name scripts
 // that do not travel — a drop-in folder is only ever started.
-packed.scripts = pkg.scripts?.start ? { start: pkg.scripts.start } : undefined;
+packed.scripts = pkg.scripts?.start
+  ? {
+      start: pkg.scripts.start,
+      // the one script a user runs in the installed folder — see SHIPPED_ANYWAY
+      ...(pkg.scripts['build:engine'] && { 'build:engine': pkg.scripts['build:engine'] }),
+    }
+  : undefined;
 delete packed.devDependencies;
 
 const bundled = [];
@@ -272,13 +284,18 @@ if (packed.soundbase.dirty) {
 // installs anything. Finding out here costs seconds; finding out from a user
 // costs a release.
 
-mkdirSync(join(packDir, 'scripts'));
+mkdirSync(join(packDir, 'scripts'), { recursive: true }); // may already hold SHIPPED_ANYWAY files
 copyFileSync(
   join(ROOT, 'scripts', 'smoke.mjs'),
   join(packDir, 'scripts', 'smoke.mjs')
 );
 run('node', [join('scripts', 'smoke.mjs')], { cwd: packDir });
-rmSync(join(packDir, 'scripts'), { recursive: true });
+// Only the probe's own file: scripts/ may also hold SHIPPED_ANYWAY files, which
+// are the point. Drop the directory only when the probe was its sole content.
+rmSync(join(packDir, 'scripts', 'smoke.mjs'));
+if (readdirSync(join(packDir, 'scripts')).length === 0) {
+  rmSync(join(packDir, 'scripts'), { recursive: true });
+}
 
 // -- zip ---------------------------------------------------------------------
 

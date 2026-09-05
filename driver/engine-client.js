@@ -20,6 +20,7 @@ import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FrameReassembler, MsgType, decodeFrame } from './frames.js';
+import { BUILD_HINT } from './locate.js';
 
 /** UHD opens the radio, downloads the FPGA image if needed, and plants cal points. */
 const STARTUP_TIMEOUT_MS = 30_000;
@@ -90,8 +91,7 @@ export class EngineClient {
     if (this.#server) return this.status;
     if (!existsSync(this.binPath)) {
       throw new EngineError(
-        `the sweep engine is not built: ${this.binPath} does not exist. ` +
-          'Run `npm run build:engine` in the plugin directory (it needs cmake and UHD 4.9+).'
+        `the sweep engine is not built (${this.binPath} does not exist): ${BUILD_HINT}.`
       );
     }
     await this.#listen();

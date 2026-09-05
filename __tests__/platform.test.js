@@ -74,7 +74,8 @@ test('the plugin reports a missing engine as bad-config, and clears it', async (
   const { engineStatus } = await import('../driver/locate.js');
   const missing = engineStatus({ enginePath: '/nonexistent/engine' });
   assert.equal(missing.ok, false);
-  assert.match(missing.message, /npm run build:engine/);
+  assert.match(missing.message, /scripts\/build-engine\.mjs/);
+  assert.match(missing.message, /cd "/, 'says which folder to run it in');
   assert.match(missing.message, /\/nonexistent\/engine/, 'names the path it looked at');
   assert.equal(engineStatus({ mock: true }).ok, true, 'mock mode needs no build');
 });

@@ -22,9 +22,15 @@ export const FAKE_ENGINE = path.join(PLUGIN_ROOT, 'driver', 'fake-engine.js');
 /** Where `npm run build:engine` puts the binary. */
 export const BUILT_ENGINE = path.join(PLUGIN_ROOT, 'engine', 'build', 'engine');
 
+/**
+ * What to do about a missing engine, with the folder to do it in. Inside
+ * SoundBase the plugin lives somewhere the user has never looked, so a bare
+ * `npm run build:engine` is an instruction with no address on it.
+ */
 export const BUILD_HINT =
-  'run `npm run build:engine` (needs cmake, ninja and UHD 4.9 or newer), ' +
-  'or set the plugin’s "Engine binary" setting to a build you already have';
+  `in a terminal run \`cd "${PLUGIN_ROOT.replace(/\/$/, '')}" && node scripts/build-engine.mjs\` ` +
+  '(needs cmake, ninja and UHD 4.9 or newer), or set the plugin’s "Engine binary" ' +
+  'setting to a build you already have, or tick "Simulate a radio" to try it without one';
 
 const isFile = (p) => {
   try {

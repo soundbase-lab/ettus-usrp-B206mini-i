@@ -66,6 +66,12 @@ const NOT_SHIPPED = [
   'scripts',
 ];
 
+// Exceptions to the list above: files a user needs *in the installed folder*.
+// The engine is shipped as source because it has to be built against the UHD
+// on the user's machine, and the build script is what makes that one command
+// instead of a cmake incantation — so it travels, and so does its npm script.
+const SHIPPED_ANYWAY = ['scripts/build-engine.mjs'];
+
 const log = (msg) => process.stdout.write(`[release] ${msg}\n`);
 const fail = (msg) => {
   process.stderr.write(`[release] ERROR: ${msg}\n`);
@@ -245,7 +251,7 @@ run(
 // this repo's own files go on top of the template's
 const shipped = capture('git', ['ls-files'])
   .split('\n')
-  .filter((f) => !NOT_SHIPPED.some((n) => f === n || f.startsWith(`${n}/`)));
+  .filter((f) => (SHIPPED_ANYWAY.includes(f) || !NOT_SHIPPED.some((n) => f === n || f.startsWith(`${n}/`))));
 for (const f of shipped) {
   mkdirSync(dirname(join(packDir, f)), { recursive: true });
   copyFileSync(join(ROOT, f), join(packDir, f));
@@ -286,13 +292,18 @@ packedPkg.soundbase = {
 writeFileSync(packedPkgPath, `${JSON.stringify(packedPkg, null, 2)}\n`);
 
 // boot the packed plugin the way the Desktop's install probe does
-mkdirSync(join(packDir, 'scripts'));
+mkdirSync(join(packDir, 'scripts'), { recursive: true }); // may already hold SHIPPED_ANYWAY files
 copyFileSync(
   join(ROOT, 'scripts/smoke.mjs'),
   join(packDir, 'scripts/smoke.mjs')
 );
 run('node', ['scripts/smoke.mjs'], { cwd: packDir });
-rmSync(join(packDir, 'scripts'), { recursive: true });
+// Only the probe's own file: scripts/ may also hold SHIPPED_ANYWAY files, which
+// are the point. Drop the directory only when the probe was its sole content.
+rmSync(join(packDir, 'scripts', 'smoke.mjs'));
+if (readdirSync(join(packDir, 'scripts')).length === 0) {
+  rmSync(join(packDir, 'scripts'), { recursive: true });
+}
 
 // one top-level folder inside the zip, like every release before
 mkdirSync(dirname(zipPath), { recursive: true });

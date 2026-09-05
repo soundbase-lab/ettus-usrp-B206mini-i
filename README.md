@@ -60,15 +60,22 @@ restart it — [docs/running-in-soundbase.md](docs/running-in-soundbase.md).
 A release zip carries the engine's **source**, not a binary: the engine links
 against whatever UHD is installed on your machine, and a binary built anywhere
 else would not load against it (see *Why there is no prebuilt engine* below).
-So after installing from the Lab there is one step to do once, in the plugin's
-folder:
+So after installing from the Lab there is one step to do once, **in the
+installed plugin's folder** — not in a checkout of this repository:
 
 ```sh
-npm run build:engine
+cd ~/Library/Application\ Support/SoundBase\ Desktop/plugins/ettus-usrp-b206mini-i   # macOS
+node scripts/build-engine.mjs
 ```
 
-Until then the plugin shows **bad-config** in SoundBase's plugin manager with
-that instruction as its status message, and lists no devices. Ticking
+(`npm run build:engine` is the same thing from a checkout of this repository.)
+
+Until then the plugin shows **bad-config** in SoundBase's plugin manager, and
+its status message carries that command with the exact folder filled in —
+copy it from there rather than from here, since the folder depends on the
+platform and on which SoundBase build you are running. If you already have a
+build in a checkout of this repository, the *Engine binary* plugin setting can
+point at it instead (`<checkout>/engine/build/engine`). Ticking
 *Simulate a radio* in the plugin's settings clears it without a build, if you
 want to see the plugin working first.
 

@@ -112,7 +112,7 @@ test('a missing engine binary is a message that says what to do', async (t) => {
     { enginePath: '/nonexistent/engine' }
   );
   try {
-    await assert.rejects(() => adapter.open(), /npm run build:engine/);
+    await assert.rejects(() => adapter.open(), /build-engine/);
   } finally {
     await adapter.close();
   }
