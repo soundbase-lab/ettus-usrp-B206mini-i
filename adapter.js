@@ -54,7 +54,15 @@ export const PRODUCT = 'plugin:ettus-usrp-b206mini-i/b206mini-i';
 /** Enumeration is polled once a second; the USB bus does not change that fast. */
 const DISCOVERY_INTERVAL_MS = 2500;
 
-/** Radios this plugin currently has open, by serial — see discoverDevices. */
+/**
+ * Radios this plugin has claimed, by serial.
+ *
+ * A B200 that an engine has opened does not answer enumeration at all —
+ * `engine --find` returns an empty list while a sweep is running — so this is
+ * what keeps an in-use radio in the device list. Without it the device would
+ * disappear from discovery seconds after it started working, and the shell
+ * removes a discovered device it stops being told about.
+ */
 const openRadios = new Map();
 
 let lastFind = { at: 0, radios: [] };
@@ -172,6 +180,22 @@ class UsrpAnalyzerAdapter {
     if (!binPath) {
       throw new Error(`The sweep engine is not built: ${BUILD_HINT}.`);
     }
+    // Claim the radio *before* spawning the engine, not after it answers.
+    // The engine takes the device away from enumeration the moment it opens
+    // it, and the shell removes a discovered device that discovery stops
+    // reporting and that has no adapter yet — which is exactly what this
+    // device is until open() returns. Miss that window and the device vanishes
+    // mid-open, and the next request 404s.
+    try {
+      return await this.#open(binPath);
+    } catch (err) {
+      // The radio is not ours after all: let discovery tell the truth about it.
+      openRadios.delete(this.serial);
+      throw err;
+    }
+  }
+
+  async #open(binPath) {
     const engine = new EngineClient({
       binPath,
       deviceArgs: deviceArgsFor(this.serial),
@@ -194,6 +218,11 @@ class UsrpAnalyzerAdapter {
 
     const info = status.device ?? {};
     if (info.serial) {
+      // A device configured with a blank serial ("the only USRP attached")
+      // learns which radio it got here, so the claim moves to the real one.
+      if (this.serial && this.serial !== info.serial) {
+        openRadios.delete(this.serial);
+      }
       this.serial = info.serial;
       openRadios.set(info.serial, {
         serial: info.serial,

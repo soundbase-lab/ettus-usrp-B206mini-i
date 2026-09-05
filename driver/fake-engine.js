@@ -76,7 +76,11 @@ const flag = (name) => {
 };
 
 if (argv.includes('--find')) {
-  process.stdout.write(`${JSON.stringify([DEVICE])}\n`);
+  // A real B200 that an engine has opened does not answer enumeration at all,
+  // which is the reason the adapter keeps its own list of claimed radios. This
+  // knob reproduces that, so the test for it is a test of something real.
+  const claimed = process.env.SB_USRP_MOCK_FIND_EMPTY === '1';
+  process.stdout.write(`${JSON.stringify(claimed ? [] : [DEVICE])}\n`);
   process.exit(0);
 }
 
