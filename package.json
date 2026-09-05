@@ -1,6 +1,6 @@
 {
   "name": "soundbase-plugin-ettus-usrp-b206mini-i",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "SoundBase plugin for the Ettus USRP B206mini-i: UHF spectrum sweeps for frequency coordination, driven by a C++ sweep engine over libuhd.",
   "license": "BUSL-1.1",
   "type": "module",

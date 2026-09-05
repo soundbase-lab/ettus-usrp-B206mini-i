@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "ettus-usrp-b206mini-i",
   "name": "Ettus USRP B206mini-i",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "license": "BUSL-1.1",
   "repository": "https://github.com/soundbase-lab/ettus-usrp-B206mini-i",
   "maintainers": [
