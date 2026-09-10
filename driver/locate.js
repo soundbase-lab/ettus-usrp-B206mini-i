@@ -35,6 +35,15 @@ export const BUILD_HINT =
   '(needs cmake, ninja and UHD 4.9 or newer), or set the plugin’s "Engine binary" ' +
   'setting to a build you already have, or tick "Simulate a radio" to try it without one';
 
+/**
+ * What to do about missing FPGA images, with the folder to do it in. Same
+ * reasoning as BUILD_HINT: the plugin folder is somewhere the user has never
+ * looked. See driver/uhd-images.js for why the images are a separate step.
+ */
+export const IMAGES_HINT =
+  `in a terminal run \`cd "${PLUGIN_ROOT.replace(/\/$/, '')}" && node scripts/install-images.mjs\` ` +
+  '(fetches the USRP firmware and FPGA images UHD needs; run it again after upgrading UHD)';
+
 const isFile = (p) => {
   try {
     return statSync(p).isFile();

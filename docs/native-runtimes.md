@@ -58,8 +58,15 @@ plugin that fails mysteriously on a clean machine.
 Say so, in your README, in the first section a user reads:
 
 > **Requires libuhd.** `brew install uhd` (macOS) or
-> `apt install libuhd-dev uhd-host` (Linux), then `uhd_images_downloader -t b2xx`
-> once so the FPGA images exist.
+> `apt install libuhd-dev uhd-host` (Linux), then `npm run images` once so
+> the FPGA images exist.
+
+Check the instruction on a clean machine of each platform before writing it
+down: Homebrew's `uhd` formula builds from a tarball with no images and keeps
+`uhd_images_downloader` off PATH, so the vendor's one-liner is "command not
+found" on macOS, and the missing images fail silently as "no device found".
+When the honest instruction is a paragraph of shell, ship a script instead —
+`scripts/install-images.mjs` here — and make sure the release pack carries it.
 
 Then give an override for when it lives somewhere unusual — an environment
 variable or a plugin config field naming the library path. Users with unusual

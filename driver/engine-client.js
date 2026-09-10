@@ -22,8 +22,15 @@ import path from 'node:path';
 import { FrameReassembler, MsgType, decodeFrame } from './frames.js';
 import { BUILD_HINT } from './locate.js';
 
-/** UHD opens the radio, downloads the FPGA image if needed, and plants cal points. */
-const STARTUP_TIMEOUT_MS = 30_000;
+/**
+ * UHD opens the radio, loads the FPGA image if needed, and plants cal points.
+ * A warm open is under two seconds; a cold one loads the FPGA over USB, and on
+ * a USB 2 port or through a hub that can take tens of seconds. Killing UHD in
+ * the middle of that load (which is what this timeout does) can leave the
+ * radio's USB controller wedged until it is unplugged — so the timeout errs
+ * long, and the message it produces says what UHD was doing when it fired.
+ */
+const STARTUP_TIMEOUT_MS = 90_000;
 /** The engine sends status once a second; this much silence means it is gone. */
 const HEALTH_TIMEOUT_MS = 5_000;
 /** `setPlan` is answered by an `applied` frame immediately, sweeping or not. */
@@ -37,6 +44,56 @@ let socketCounter = 0;
 
 export class EngineError extends Error {
   name = 'EngineError';
+}
+
+const isUhdLine = (l) => /^\[(INFO|WARNING|ERROR)\]/.test(l);
+
+/**
+ * What to tell a user whose engine connected and then never reported a device.
+ *
+ * The engine forwards UHD's console output, and UHD narrates an open — device
+ * detected, FPGA image loading, USB speed, clock rate — so the last UHD line
+ * says which stage hung. No UHD line at all means UHD never got an answer from
+ * the radio on USB. Either way the fix is physical (replug, another port), and
+ * the one command that shows the same open outside SoundBase is included.
+ *
+ * @param {object} o
+ * @param {number} o.timeoutMs
+ * @param {string[]} o.lines      the engine's recent stderr, UHD lines included
+ * @param {string} [o.deviceArgs] `type=b200,serial=…`, for the probe command
+ */
+export function startupTimeoutMessage({ timeoutMs, lines, deviceArgs = '' }) {
+  const seconds = Math.round(timeoutMs / 1000);
+  const serial = /serial=([^,\s]+)/.exec(deviceArgs)?.[1];
+  const probe = `uhd_usrp_probe --args "type=b200${serial ? `,serial=${serial}` : ''}"`;
+  const uhd = lines.filter(isUhdLine);
+  const last = uhd.at(-1);
+  const usb2 = uhd.some((l) => /Operating over USB 2/.test(l));
+
+  let diagnosis;
+  if (!last) {
+    diagnosis =
+      'UHD printed nothing at all, so the radio is not answering on USB. ' +
+      'Unplug it, wait five seconds, plug it straight into the computer (not a hub), and try again';
+  } else if (/Loading (FPGA|firmware) image/i.test(last)) {
+    const what = /FPGA/i.test(last) ? 'FPGA' : 'firmware';
+    diagnosis =
+      `UHD was still loading the radio's ${what} image, which normally takes a few seconds` +
+      (usb2 ? ' — and this radio is on a USB 2 link' : '') +
+      '. A hub, a long cable or a USB 2 port slows it badly: unplug the radio, ' +
+      'plug it into a USB 3 port on the computer itself, and try again';
+  } else {
+    diagnosis =
+      `UHD got as far as "${last.replace(/^\[\w+\]\s*/, '')}" and then stopped` +
+      (usb2 ? ' (on a USB 2 link)' : '') +
+      '. Unplug the radio, wait five seconds, plug it back in, and try again';
+  }
+  const engine = lines.filter((l) => !l.startsWith('[INFO]') || /error|fail/i.test(l)).slice(-3);
+  return (
+    `the sweep engine did not report a device within ${seconds}s. ${diagnosis}. ` +
+    `To watch UHD open it outside SoundBase, in a terminal: ${probe}.` +
+    (engine.length ? ` Engine said: ${engine.join(' / ')}` : '')
+  );
 }
 
 export class EngineClient {
@@ -64,10 +121,11 @@ export class EngineClient {
   /** Latest engine status object, or null before the first one arrives. */
   status = null;
 
-  constructor({ binPath, deviceArgs, eqDir, tag = 'usrp', log }) {
+  constructor({ binPath, deviceArgs, eqDir, tag = 'usrp', log, startupTimeoutMs = STARTUP_TIMEOUT_MS }) {
     this.binPath = binPath;
     this.deviceArgs = deviceArgs;
     this.eqDir = eqDir;
+    this.startupTimeoutMs = startupTimeoutMs;
     this.onLog = log ?? null;
     socketCounter += 1;
     const stem = path.join(tmpdir(), `sb-${tag}-${process.pid}-${socketCounter}`);
@@ -119,11 +177,14 @@ export class EngineClient {
       const timer = setTimeout(() => {
         finish(
           new EngineError(
-            `the sweep engine did not report a device within ${STARTUP_TIMEOUT_MS / 1000}s. ` +
-              this.#tail()
+            startupTimeoutMessage({
+              timeoutMs: this.startupTimeoutMs,
+              lines: this.#stderrTail,
+              deviceArgs: this.deviceArgs,
+            })
           )
         );
-      }, STARTUP_TIMEOUT_MS);
+      }, this.startupTimeoutMs);
       timer.unref?.();
       this.#onReady = (status) => finish(null, status);
       this.#onEarlyExit = (reason) =>

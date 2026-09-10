@@ -70,7 +70,7 @@ const NOT_SHIPPED = [
 // The engine is shipped as source because it has to be built against the UHD
 // on the user's machine, and the build script is what makes that one command
 // instead of a cmake incantation — so it travels, and so does its npm script.
-const SHIPPED_ANYWAY = ['scripts/build-engine.mjs'];
+const SHIPPED_ANYWAY = ['scripts/build-engine.mjs', 'scripts/install-images.mjs'];
 
 const log = (msg) => process.stdout.write(`[release] ${msg}\n`);
 const fail = (msg) => {

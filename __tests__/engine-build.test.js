@@ -86,6 +86,16 @@ test('missing tools name the install command for this platform', () => {
   assert.equal(seen[0].status, 'bad-config');
   assert.match(seen[0].message, /brew install cmake ninja uhd/);
   assert.match(seen[0].message, /installed: 4\.6/, 'says what is there, not just what is wanted');
+  assert.doesNotMatch(
+    seen[0].message,
+    /uhd_images_downloader/,
+    'Homebrew has no uhd_images_downloader on PATH: the bare command is "command not found"'
+  );
+  assert.match(
+    seen[0].message,
+    /install-images\.mjs/,
+    'the images still have to be fetched — by the script that travels with the plugin'
+  );
   assert.equal(builder.building, false);
 
   assert.match(

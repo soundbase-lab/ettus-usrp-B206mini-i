@@ -8,7 +8,7 @@
 // UHD or cabling problem rather than a plugin problem.
 
 import { discoverDevices } from '../adapter.js';
-import { BUILD_HINT, mockRequested, resolveEngineBinary } from '../driver/locate.js';
+import { BUILD_HINT, IMAGES_HINT, mockRequested, resolveEngineBinary } from '../driver/locate.js';
 
 const pluginConfig = { mock: mockRequested() };
 const binPath = resolveEngineBinary(pluginConfig);
@@ -20,11 +20,14 @@ process.stdout.write(`engine: ${binPath}\n`);
 
 const devices = await discoverDevices(pluginConfig);
 if (devices.length === 0) {
+  // Without the firmware image UHD's find returns nothing for a B2xx — the
+  // radio powers up (orange LED) but is never programmed.
   process.stdout.write(
     'no USRP found.\n' +
       '  · is it plugged in, and into a port that gives it enough power?\n' +
       '  · does `uhd_find_devices` see it?\n' +
-      '  · has `uhd_images_downloader -t b2xx` ever been run on this machine?\n'
+      '  · are the FPGA images there? `uhd_config_info --images-dir` must name a folder with usrp_b200_fw.hex in it.\n' +
+      `    If it is blank, ${IMAGES_HINT}\n`
   );
   process.exit(1);
 }

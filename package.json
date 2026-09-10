@@ -16,6 +16,7 @@
     "start": "node main.js",
     "build:engine": "node scripts/build-engine.mjs",
     "find": "node scripts/find-radios.mjs",
+    "images": "node scripts/install-images.mjs",
     "test": "node --test __tests__/*.test.js examples/*/__tests__/*.test.js",
     "doctor": "node scripts/doctor.mjs",
     "manifest": "node scripts/validate-manifest.mjs",

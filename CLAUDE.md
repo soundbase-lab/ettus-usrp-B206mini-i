@@ -36,7 +36,7 @@ engine/                 the C++ sweep engine, vendored from usrp-scanner
 __tests__/              contract tests through the real shell, plus golden frames
 examples/network-analyzer/   a second complete plugin, over TCP, with a fake device
 docs/                   the guide set; docs/README.md indexes it
-scripts/                build-engine, find-radios, doctor, smoke, manifest, rename, release
+scripts/                build-engine, install-images, find-radios, doctor, smoke, manifest, rename, release
 ```
 
 `README.md` is the user-facing description; `docs/engine-protocol.md` is the
@@ -142,6 +142,7 @@ In order of what they prove:
 npm run doctor       # is the plugin well-formed at all?
 npm test             # adapter through the real shell, over HTTP, against the fake engine
 npm run manifest     # the manifest the host will refuse or accept
+npm run images       # UHD's FPGA/firmware images, once per machine — without them a B2xx is invisible
 npm run find         # discovery, without SoundBase in the way
 npm run smoke        # boots as a child process, handshakes, sweeps — with the real radio if attached
 npm run build:engine -- --test   # after any change under engine/

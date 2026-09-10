@@ -22,10 +22,27 @@ UHD is a USB driver layer with udev rules and downloadable FPGA images. It is a
 system prerequisite; no plugin folder can carry it.
 
 ```sh
-brew install cmake ninja uhd                          # macOS
+brew install cmake ninja uhd                           # macOS
 sudo apt install cmake ninja-build libuhd-dev uhd-host # Debian / Raspberry Pi OS
-uhd_images_downloader -t b2xx                          # once, per machine
 ```
+
+Then the FPGA and firmware images, once per machine. Without them a B2xx
+powers up (orange LED) but is never programmed, and UHD's discovery returns
+nothing — the plugin says "no device found" with no further clue.
+
+```sh
+npm run images                     # from a checkout
+node scripts/install-images.mjs    # in an installed plugin folder
+```
+
+That wraps UHD's own `uhd_images_downloader -t b2xx`: it finds the downloader
+wherever UHD put it (Homebrew installs it off PATH), gives it a python with
+the `requests` module it needs (a throwaway venv when the system python has
+none), and checks that `uhd_config_info --images-dir` ends up naming a folder
+with `usrp_b200_fw.hex` in it. A blank answer there means the images were
+never installed. On macOS they live in the versioned Cellar folder, so
+**`brew upgrade uhd` loses them** — run it again afterwards. Arguments after
+`--` replace the default `-t b2xx`.
 
 UHD **4.9 or newer** — the B206mini-i is not supported by earlier releases.
 Check with `uhd_config_info --version`, and that the radio is seen at all with
@@ -36,6 +53,7 @@ Check with `uhd_config_info --version`, and that the radio is seen at all with
 ```sh
 npm install
 npm run build:engine     # compiles engine/ → engine/build/engine
+npm run images           # fetches UHD's FPGA/firmware images, once per machine
 npm run find             # what the plugin's discovery sees
 npm run smoke            # boots, handshakes, sweeps, exactly as SoundBase does
 ```
@@ -223,6 +241,7 @@ In order of what they prove:
 npm run doctor       # is the plugin well-formed at all?
 npm test             # the adapter through the real shell, over HTTP, against the fake engine
 npm run manifest     # the manifest the host will accept or refuse
+npm run images       # UHD's FPGA/firmware images, once per machine (and after upgrading UHD)
 npm run find         # discovery, without SoundBase in the way
 npm run smoke        # boots as a child process, handshakes, sweeps — with the real radio if one is attached
 npm run build:engine -- --test    # the engine's own unit tests
@@ -264,7 +283,9 @@ take roughly five times as long.
 |---|---|
 | The plugin appears with no devices | `npm run find`. If that is empty, so is `uhd_find_devices`, and it is a cabling, power or UHD problem rather than a plugin one. |
 | The device fails with "the sweep engine is not built" | `npm run build:engine`. |
-| The device fails on open, mentioning UHD | Usually the FPGA image: run `uhd_images_downloader -t b2xx` once on that machine. |
+| The device fails with "the sweep engine did not report a device within 90s" | The radio stopped answering while UHD opened it. The message says what UHD was doing when the wait ran out — nothing at all, still loading the FPGA image, or a named stage — and the fix is physical: unplug the radio, wait five seconds, plug it into a USB 3 port on the computer itself (no hub), try again. To watch the same open outside SoundBase: `uhd_usrp_probe --args "type=b200,serial=<serial>"` in a terminal, with SoundBase closed so nothing else holds the radio. A warm open takes about two seconds; the FPGA stays loaded until the radio is unplugged. Rebuilding the engine changes nothing here — UHD reads the images from disk at open time, nothing is compiled in. |
+| Orange power LED, but `npm run find` and `uhd_find_devices` see nothing | The firmware image is missing: `uhd_config_info --images-dir` is blank or has no `usrp_b200_fw.hex`. `npm run images` (again after `brew upgrade uhd`). |
+| The device fails on open, mentioning UHD | Usually the FPGA image (`usrp_b205mini_fpga.bin` for the B206mini-i): `npm run images`. |
 | The device fails with "another engine holds …" | Something else has the radio — a `usrp-scanner` server, a second SoundBase, a leftover process. One engine per radio, by design. |
 | The plugin does not appear at all | `npm run doctor`, then `npm run smoke`, then [docs/troubleshooting.md](docs/troubleshooting.md). A plugin whose handshake never arrives is simply invisible to the host. |
 

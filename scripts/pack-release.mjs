@@ -73,7 +73,9 @@ const NOT_SHIPPED = [
 // The engine is shipped as source because it has to be built against the UHD
 // on the user's machine, and the build script is what makes that one command
 // instead of a cmake incantation — so it travels, and so does its npm script.
-const SHIPPED_ANYWAY = ['scripts/build-engine.mjs'];
+// The images installer travels for the same reason: the alternative is a
+// venv-and-downloader one-liner pasted from a README.
+const SHIPPED_ANYWAY = ['scripts/build-engine.mjs', 'scripts/install-images.mjs'];
 
 const log = (msg) => process.stdout.write(`[pack-release] ${msg}\n`);
 const warn = (msg) => process.stdout.write(`[pack-release] WARNING: ${msg}\n`);
@@ -204,8 +206,9 @@ const packed = { ...pkg };
 packed.scripts = pkg.scripts?.start
   ? {
       start: pkg.scripts.start,
-      // the one script a user runs in the installed folder — see SHIPPED_ANYWAY
+      // the scripts a user runs in the installed folder — see SHIPPED_ANYWAY
       ...(pkg.scripts['build:engine'] && { 'build:engine': pkg.scripts['build:engine'] }),
+      ...(pkg.scripts.images && { images: pkg.scripts.images }),
     }
   : undefined;
 delete packed.devDependencies;

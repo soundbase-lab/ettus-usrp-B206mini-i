@@ -17,7 +17,7 @@
 // this before anything is spawned.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { BUILD_HINT, BUILD_SCRIPT, PLUGIN_ROOT, engineStatus } from './locate.js';
+import { BUILD_HINT, BUILD_SCRIPT, IMAGES_HINT, PLUGIN_ROOT, engineStatus } from './locate.js';
 
 /** The B206mini-i is not supported before UHD 4.9. */
 export const UHD_MIN = [4, 9];
@@ -76,11 +76,11 @@ export function prerequisitesMessage(tools, platform = process.platform) {
   const what = missing.join(' and ');
   let install;
   if (platform === 'darwin') {
-    install =
-      'brew install cmake ninja uhd, then uhd_images_downloader -t b2xx once';
+    // Homebrew ships neither the images nor uhd_images_downloader on PATH.
+    install = `brew install cmake ninja uhd, then the FPGA images once — ${IMAGES_HINT}`;
   } else if (platform === 'linux') {
     install =
-      'sudo apt install cmake ninja-build libuhd-dev uhd-host, then uhd_images_downloader -t b2xx once. ' +
+      `sudo apt install cmake ninja-build libuhd-dev uhd-host, then the FPGA images once — ${IMAGES_HINT}. ` +
       `Distribution packages may be older than ${UHD_MIN.join('.')}; then UHD has to come from Ettus’ PPA or from source`;
   } else {
     install = 'install cmake and UHD';

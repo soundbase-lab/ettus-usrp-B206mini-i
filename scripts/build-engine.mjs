@@ -12,7 +12,8 @@
 //
 //   macOS         brew install cmake ninja uhd
 //   Debian/Pi     sudo apt install cmake ninja-build libuhd-dev uhd-host
-//   then once     uhd_images_downloader -t b2xx
+//   then once     npm run images   (the FPGA images; Homebrew ships neither
+//                 them nor uhd_images_downloader on PATH)
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
