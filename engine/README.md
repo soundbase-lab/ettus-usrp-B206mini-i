@@ -1,13 +1,9 @@
 # scanner engine (C++20)
 
-> **Vendored.** This directory is a copy of `apps/engine/` from the
-> [`usrp-scanner`](https://github.com/soundbase-lab/usrp-scanner) project, where
-> the sweep planner, the DSP, the stitching and the calibration work were done
-> and measured. It is a copy rather than a submodule because the plugin has to
-> build from its own checkout. One change lives here and not upstream:
-> `engine --find`, which enumerates radios without claiming one, so the plugin's
-> discovery can poll while a sweep is running. Re-applying that patch is the
-> whole cost of taking an upstream update; the golden frames in
+> The sweep planner, the DSP, the stitching and the calibration in here were
+> measured against a real B206mini-i; the design notes at the end record what
+> was found. `engine --find` enumerates radios without claiming one, so the
+> plugin's discovery can poll while a sweep is running. The golden frames in
 > `../__tests__/fixtures/` catch a protocol change that the JavaScript side has
 > not been told about.
 >
@@ -18,8 +14,7 @@
 Single owner of the USRP B206mini. Threads: `T_ctl` (all UHD control calls, sweep loop), `T_rx` (recv into a
 lock-free ring, real-time priority), `T_dsp` (window + FFT + power accumulation + stitching), reader/writer for the
 Unix socket, and a watchdog (`_exit(3)` when UHD blocks > 5 s or the stream dies). The wire is described in
-[../docs/engine-protocol.md](../docs/engine-protocol.md); the design notes and measurements it came from are
-PLAN.md sections 3–5 in the upstream `usrp-scanner` repository.
+[../docs/engine-protocol.md](../docs/engine-protocol.md).
 
 ## Build
 
@@ -57,7 +52,7 @@ A lock file (`--lock`, default `run/engine.lock`) refuses a second engine on the
 `src/cal*.{hpp,cpp}` K(gain, freq) models incl. UHD pwr_cal · `src/usrp.*` multi_usrp wrapper · `src/engine.*`
 threads and sweep loop · `src/protocol.*` frame codec · `src/socket.*` UDS client · `src/main.cpp` CLI.
 
-## Design notes that differ from the upstream PLAN.md as written
+## Design notes, as measured
 
 - FFT size rule tightened to Δf ≤ RBW/16 (≥ 16 fine bins per cell): with 8 bins a tone 3.5 kHz inside a cell edge
   lost 3 dB of its main lobe. At 8 MS/s / 25 kHz this gives N = 5120 (not 3840).

@@ -2,8 +2,8 @@
 
 What goes over the Unix domain socket between `driver/engine-client.js` and the
 C++ engine in `engine/`. This is the private wire of this plugin — SoundBase
-never sees it, and it is versioned by the vendored engine rather than by the
-plugin contract.
+never sees it, and it is versioned by the engine in this repository rather
+than by the plugin contract.
 
 The normative implementations are `engine/src/protocol.cpp` (which writes it)
 and `driver/frames.js` (which reads it). The golden frames in
@@ -146,7 +146,7 @@ reporting.
 | | |
 |---|---|
 | `engine --socket PATH --lock PATH --args ARGS --profile auto` | the normal one: serve the plugin |
-| `engine --find [--args ARGS]` | list attached radios as JSON, without claiming one — this plugin's own addition to the vendored engine. It cannot see a radio an engine already has open: a claimed B200 does not answer enumeration, which is why `adapter.js` keeps its own list of claimed radios |
+| `engine --find [--args ARGS]` | list attached radios as JSON, without claiming one — it reads USB descriptors only. It cannot see a radio an engine already has open: a claimed B200 does not answer enumeration, which is why `adapter.js` keeps its own list of claimed radios |
 | `engine --emit-fixtures DIR` | write the golden frames in `__tests__/fixtures/` |
 
 `engine --probe`, `--dump`, `--eqcap`, `--calwrite` and `--guardtest` exist for

@@ -226,9 +226,9 @@ leaves the rest in force.
 
 ## 7. See it in the app
 
-[running-in-soundbase.md](running-in-soundbase.md) covers where to put the
-folder, the feature flag that gates third-party plugins, the plugin manager,
-and where the logs are.
+[running-in-soundbase.md](running-in-soundbase.md) covers installing it
+through the Lab's develop page, the feature flag that gates third-party
+plugins, the plugin manager, and where the logs are.
 
 ## Where to go next
 

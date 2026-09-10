@@ -70,10 +70,35 @@ Mock mode is also a checkbox in the plugin's settings inside SoundBase, which
 is the honest way to demonstrate a coordination workflow with no radio in the
 room. It never opens a USRP and never claims to have measured anything.
 
-To use it for real, put this folder where SoundBase looks for plugins and
-restart it — [docs/running-in-soundbase.md](docs/running-in-soundbase.md).
+## Running it in SoundBase
 
-### Installing from the Lab
+SoundBase installs plugins from the **Lab**, and that is the development flow
+too: every build you run inside SoundBase is a release you tagged, installed
+the way a user's copy is installed.
+
+1. **Cut a release.** *Actions → Release → Run workflow* with `bump` set to
+   `patch`, `minor` or `major`. CI moves the version in `soundbase-plugin.json`,
+   `package.json` and `package-lock.json`, commits, tags `v<version>`, runs
+   `doctor`, `manifest`, the tests and the pack, and only then pushes and
+   publishes a GitHub Release with the zip attached. A red run leaves `main`
+   untouched. (Pushing a `v<version>` tag by hand does the same, provided the
+   tag matches the version in both manifests.)
+2. **Add it on the Lab's develop page.** Repository URL and the tag. The Lab
+   resolves the release the way a public submission is resolved — one zip,
+   a `LICENSE`, a valid manifest — and keeps the entry private to your account:
+   it is never listed, moderated or visible to anyone else.
+3. **Install it in SoundBase Desktop.** *Settings → Plugins* shows the entry
+   with a *development* badge. Install it; the plugin is downloaded, verified,
+   booted once as a probe and moved into place, exactly as for a user.
+4. **Iterate.** Tag the next version, re-point the develop entry at the new
+   tag, press *Update* in the Plugins tab.
+
+When it is ready for everyone, submit the tag from *my submissions* instead
+and wait for approval — [docs/publishing.md](docs/publishing.md) has the
+Lab's rules. Seeing the device on the plot and reading the plugin's log are in
+[docs/running-in-soundbase.md](docs/running-in-soundbase.md#seeing-a-device).
+
+### The first run builds the engine
 
 A release zip carries the engine's **source**, not a binary: the engine links
 against whatever UHD is installed on your machine, and a binary built anywhere
@@ -161,7 +186,7 @@ go unreported.
 **Plugin settings** apply to every radio:
 
 - **Engine binary** — blank uses `engine/build/engine`. Set it to use a build
-  of your own, or one shared with a `usrp-scanner` checkout.
+  of your own.
 - **Level offset** — added to every amplitude, in dB. This is where feeder
   loss, an inline preamplifier or an attenuator gets corrected for.
 - **Simulate a radio** — mock mode, as above.
@@ -202,7 +227,7 @@ driver/
   plan.js                 geometry: engine cells ↔ SoundBase points
   locate.js               finding the engine binary, and finding radios
   fake-engine.js          the same wire, with no radio attached
-engine/                   the C++ sweep engine (vendored — see below)
+engine/                   the C++ sweep engine
 main.js                   shell bootstrap, byte-identical across every plugin
 __tests__/                the contract, driven through the real shell
 docs/engine-protocol.md   what goes over that socket
@@ -218,20 +243,10 @@ kills it, the device is marked failed with a message saying what happened, and
 the next operation opens a fresh one. `__tests__/engine-failure.test.js` is that
 sequence, with the fake engine exiting on cue.
 
-### Where the engine came from
-
-`engine/` is vendored from the [`usrp-scanner`](https://github.com/soundbase-lab/usrp-scanner)
-project, which is where the sweep planner, the DSP, the stitching and the
-calibration work were done and measured. It is a copy, not a submodule: this
-plugin has to build from its own checkout. One deliberate addition lives here
-and not there — `engine --find`, which enumerates attached radios by reading USB
-descriptors without claiming one, so discovery can poll safely while a sweep is
-running.
-
-Pulling in engine changes from upstream is a copy of `apps/engine/` plus
-re-applying that patch; `npm test` decodes golden frames emitted by the engine
-binary itself, so a protocol change on the C++ side fails here rather than
-producing a trace that is subtly wrong.
+`engine --find` enumerates attached radios by reading USB descriptors without
+claiming one, so discovery can poll safely while a sweep is running. `npm test`
+decodes golden frames emitted by the engine binary itself, so a protocol change
+on the C++ side fails there rather than producing a trace that is subtly wrong.
 
 ## Verifying a change
 
@@ -286,26 +301,12 @@ take roughly five times as long.
 | The device fails with "the sweep engine did not report a device within 90s" | The radio stopped answering while UHD opened it. The message says what UHD was doing when the wait ran out — nothing at all, still loading the FPGA image, or a named stage — and the fix is physical: unplug the radio, wait five seconds, plug it into a USB 3 port on the computer itself (no hub), try again. To watch the same open outside SoundBase: `uhd_usrp_probe --args "type=b200,serial=<serial>"` in a terminal, with SoundBase closed so nothing else holds the radio. A warm open takes about two seconds; the FPGA stays loaded until the radio is unplugged. Rebuilding the engine changes nothing here — UHD reads the images from disk at open time, nothing is compiled in. |
 | Orange power LED, but `npm run find` and `uhd_find_devices` see nothing | The firmware image is missing: `uhd_config_info --images-dir` is blank or has no `usrp_b200_fw.hex`. `npm run images` (again after `brew upgrade uhd`). |
 | The device fails on open, mentioning UHD | Usually the FPGA image (`usrp_b205mini_fpga.bin` for the B206mini-i): `npm run images`. |
-| The device fails with "another engine holds …" | Something else has the radio — a `usrp-scanner` server, a second SoundBase, a leftover process. One engine per radio, by design. |
+| The device fails with "another engine holds …" | Something else has the radio — a second SoundBase, a leftover engine process, another UHD program. One engine per radio, by design. |
 | The plugin does not appear at all | `npm run doctor`, then `npm run smoke`, then [docs/troubleshooting.md](docs/troubleshooting.md). A plugin whose handshake never arrives is simply invisible to the host. |
 
 Anything the engine says at warning level or above is written to the plugin's
 log, which SoundBase can open — including UHD's own overflow and timeout
 complaints, which are the first sign of a USB port that cannot keep up.
-
-## Cutting a release
-
-The Release workflow publishes only from a **tag**; running it by hand
-(`workflow_dispatch`) is a rehearsal that builds and uploads the zip as a
-workflow artifact without creating a Release. To publish:
-
-```sh
-git tag v0.1.0 && git push origin v0.1.0
-```
-
-The tag must match `version` in both `soundbase-plugin.json` and
-`package.json` — the pack step refuses otherwise. Then, in the Lab: *my
-submissions → update release → v0.1.0*.
 
 ## Licence
 

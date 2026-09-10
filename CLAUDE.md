@@ -32,7 +32,7 @@ driver/
   locate.js             finding the engine binary, and finding radios
   fake-engine.js        the same wire, with no radio attached
   warnings.js           engine status → the contract's warnings (three severities)
-engine/                 the C++ sweep engine, vendored from usrp-scanner
+engine/                 the C++ sweep engine (libuhd); built on the machine it runs on
 __tests__/              contract tests through the real shell, plus golden frames
 examples/network-analyzer/   a second complete plugin, over TCP, with a fake device
 docs/                   the guide set; docs/README.md indexes it
@@ -178,13 +178,21 @@ JavaScript codec, so a C++ protocol change fails there.
 > trace draws at the wrong frequencies. Add the case to
 > `__tests__/geometry.test.js`, which is where that class of bug is caught.
 
-**Taking an engine change from usrp-scanner**
+**Changing the engine**
 
-> Copy `apps/engine/` over `engine/`, re-apply the `--find` mode (it is this
-> repository's only local change — see `engine/README.md`), rebuild with
-> `npm run build:engine -- --test`, regenerate the golden frames with
+> Edit under `engine/src/`, rebuild with `npm run build:engine -- --test`,
+> regenerate the golden frames with
 > `engine/build/engine --emit-fixtures __tests__/fixtures`, and run `npm test`.
-> If the frame tests fail, `driver/frames.js` needs the same change.
+> If the frame tests fail, `driver/frames.js` needs the same change — the
+> protocol is documented in `docs/engine-protocol.md` and versioned by this
+> repository alone.
+
+**Trying a change inside SoundBase**
+
+> There is no drop-in folder. Cut a release (*Actions → Release*, `bump:
+> patch`), point the Lab's develop entry at the new tag, and press *Update* in
+> *Settings → Plugins*. The README's "Running it in SoundBase" section is the
+> reference; `npm run smoke` covers everything short of the app itself.
 
 **Diagnosing "my radio does not appear in SoundBase"**
 
@@ -220,5 +228,5 @@ JavaScript codec, so a C++ protocol change fails there.
   process exists to prevent.
 - **Sharing one radio between two consumers.** A USRP has one RX path and one
   owner; the engine takes a lock file to enforce it. Two SoundBase devices on
-  one serial, or this plugin alongside a running `usrp-scanner` server, is not
-  a configuration to make work.
+  one serial, or this plugin alongside another UHD program holding the radio,
+  is not a configuration to make work.

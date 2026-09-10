@@ -12,58 +12,42 @@ step: getting your plugin into the app and seeing its trace on the plot.
   development. Ask your SoundBase contact to switch it on; without it your
   plugin is scanned, listed as disabled, and never spawned.
 
-## Where the plugin folder goes
+## Installing it — through the Lab
 
-SoundBase scans `<userData>/plugins` for folders containing a
-`soundbase-plugin.json`. Each direct child of that directory is one plugin.
+SoundBase installs plugins from the **Lab**, and that is the development flow
+too: what you run inside SoundBase is a release you tagged, installed the way
+a user's copy is installed. There is no folder to copy and no path to point
+the app at.
 
-| | |
-|---|---|
-| macOS | `~/Library/Application Support/SoundBase Desktop/plugins` |
-| Windows | `%APPDATA%\SoundBase Desktop\plugins` |
-| Linux | `~/.config/SoundBase Desktop/plugins` |
+1. **Cut a release.** *Actions → Release → Run workflow* with `bump` set to
+   `patch`, `minor` or `major`; CI bumps, tags, checks and publishes a GitHub
+   Release with the zip attached. [publishing.md](publishing.md) has every
+   route and every rule the zip has to satisfy.
+2. **Add it on the Lab's develop page.** Repository URL and the tag. The entry
+   is private to your account — never listed, never moderated, invisible to
+   anyone else — and the release is resolved exactly as a public one would be.
+3. **Install it in SoundBase Desktop.** *Settings → Plugins* shows the entry
+   with a *development* badge. Install downloads the zip, verifies it, boots
+   it once as a probe and only then moves it into place.
+4. **Iterate.** Tag the next version, re-point the develop entry at it, press
+   *Update* in the Plugins tab.
 
-```
-plugins/
-  my-plugin/
-    soundbase-plugin.json
-    main.js
-    adapter.js
-    node_modules/          ← must be present; nothing installs it for you
-```
-
-**The dependencies have to be there.** SoundBase runs `main.js` as-is; it does
-not install anything. A folder without `node_modules/@soundbase/plugin-shell`
-fails at its first import, which looks exactly like a plugin that never
-handshakes.
-
-### The development shortcut
-
-Copying a folder after every edit gets old immediately. Instead, point
-SoundBase at your working tree with the `SB_PLUGIN_DIRS` environment variable —
-a path-separated list of extra scan roots:
-
-```bash
-# macOS
-SB_PLUGIN_DIRS="$HOME/CODE" open -a "SoundBase Desktop"
-```
-
-Point it at the *parent* of your plugin folder, not at the plugin folder
-itself: a scan root contains plugins, it is not one.
-
-`SB_PLUGIN_DIRS` roots are for development only. Installs from the Lab always
-land in `<userData>/plugins`, never in one of these.
+**The dependencies travel in the zip.** SoundBase runs `main.js` as-is and
+installs nothing, so a zip packed without `node_modules/` fails at its first
+import, which looks exactly like a plugin that never handshakes. `npm run
+pack:release` and the Release workflow include them; the boot probe catches a
+zip that does not.
 
 ## The plugin manager
 
-Once the folder is in place and the flag is on, your plugin appears in
+Once it is installed and the flag is on, your plugin appears in
 **Settings → Plugins**, where a user can:
 
 - see its name, version and status, and any manifest error that stopped it;
 - enable or disable it (disabled plugins are not spawned);
 - fill in the `pluginConfigFields` your manifest declares;
 - read its log;
-- rescan, after you have dropped in a new folder.
+- update it, after you have re-pointed the develop entry at a new tag.
 
 A plugin whose manifest fails validation is listed with its error rather than
 silently skipped — one bad drop-in never stops the others.

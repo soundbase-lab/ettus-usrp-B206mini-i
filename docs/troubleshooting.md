@@ -66,18 +66,19 @@ SoundBase validates it **before spawning**. An invalid manifest means the
 plugin never starts. It is listed in the plugin manager with its error, so
 check there too.
 
-**3. Is the folder where SoundBase is looking?**
+**3. Did the install go through?**
 
-`<userData>/plugins/<your-plugin>/soundbase-plugin.json` must exist — one
-folder per plugin, directly under the scan root. Paths per OS are in
-[running-in-soundbase.md](running-in-soundbase.md#where-the-plugin-folder-goes).
-If you are using `SB_PLUGIN_DIRS`, point it at the folder *containing* your
-plugin, not at the plugin folder.
+Plugins get in through the Lab — a develop entry for your own code, a listing
+for everyone else's — and the Desktop installer boots the zip once before
+moving it into place. A refused install says why in *Settings → Plugins*; a
+plugin that is not there at all was never installed. The flow is in
+[running-in-soundbase.md](running-in-soundbase.md#installing-it--through-the-lab).
 
-**4. Are dependencies actually there?**
+**4. Are dependencies actually in the zip?**
 
 SoundBase runs `main.js` as-is and installs nothing. `node_modules/` has to be
-in the folder. A drop-in without it dies on its first import.
+in the release zip. `npm run pack:release` and the Release workflow include it;
+a zip built any other way without it dies on its first import.
 
 **5. Is the feature flag on?**
 
@@ -91,9 +92,10 @@ Settings → Plugins. A disabled plugin is not spawned.
 
 **7. Is the id colliding?**
 
-Two folders with the same manifest `id` — most often a copy left in
-`<userData>/plugins` and a dev tree on `SB_PLUGIN_DIRS` — and one of them loses
-as a duplicate. Rename or remove one.
+Two installed plugins with the same manifest `id`, and one of them loses as a
+duplicate. The Lab refuses a second develop entry with an id already on your
+account; a stale install from an older release shows in *Settings → Plugins* —
+remove it there.
 
 ---
 

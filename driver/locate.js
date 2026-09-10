@@ -1,6 +1,6 @@
 // Finding the sweep engine, and finding radios with it.
 //
-// The engine binary is built from the vendored C++ in engine/ and lands in
+// The engine binary is built from the C++ in engine/ and lands in
 // engine/build/. A user with their own build elsewhere can point at it with the
 // plugin's `enginePath` setting or the SB_USRP_ENGINE environment variable —
 // that is the escape hatch docs/native-runtimes.md asks for, and the reason
@@ -64,7 +64,7 @@ export function mockRequested(pluginConfig = {}) {
 /**
  * The engine binary this plugin should run, or null if there is none yet.
  *
- * Explicit settings win outright, then the vendored build, then any build a
+ * Explicit settings win outright, then the in-tree build, then any build a
  * CMake preset left in engine/build/<preset>/ — that last one is what makes a
  * `cmake --preset pi-release` build work without reconfiguring the plugin.
  */
