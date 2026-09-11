@@ -160,6 +160,16 @@ void Engine::dspLoop() {
         if (got == 0) {
             if (tEnd <= cur.tStartS) { ring_.commitRead(); continue; }
             if (t0 < cur.tStartS) off = size_t(std::ceil((cur.tStartS - t0) * fs));
+            else if (t0 > cur.tStartS + 1.5 / fs) {
+                // Late start: the chunk holding tStart is gone (gap or dropped data). Shorten the capture so it still
+                // ends on schedule; otherwise its tail would run past the next timed DDC retune and hold the next
+                // sub-window's spectrum (measured 2026-09-10: -9..-12 dB copies of the neighbour window).
+                double lateS = t0 - cur.tStartS;
+                size_t lateN = size_t(std::ceil(lateS * fs));
+                lateStarts_++; lateStartUs_.store(uint64_t(lateS * 1e6));
+                if (lateN >= cur.nSamples) { ring_.commitRead(); complete(false); continue; }
+                cur.nSamples -= lateN; cur.tStartS = t0;
+            }
             if (off >= c->n) { ring_.commitRead(); continue; }
         }
         size_t avail = c->n - off, need = cur.nSamples - got, take = std::min(avail, need);
@@ -175,7 +185,9 @@ void Engine::dspLoop() {
         if (part.firstClip >= 0) { if (st.firstClip < 0) st.firstClip = int64_t(got) + part.firstClip; st.lastClip = int64_t(got) + part.lastClip; }
         got += take;
         st.sampleCount += part.sampleCount; st.clipCount += part.clipCount; st.peakAbs = std::max(st.peakAbs, part.peakAbs);
-        ring_.commitRead();
+        // Only release the chunk once it is fully consumed. The 0.3 ms DDC guard between sub-windows is shorter than a
+        // chunk (16384 samples = 2 ms at 8 MS/s), so the next capture almost always starts inside this same chunk.
+        if (take >= avail) ring_.commitRead();
         if (got >= cur.nSamples) complete(true);
     }
 }
@@ -319,7 +331,7 @@ void Engine::applyPlan() {
     for (auto& w : warnings) pl->warnings.push_back(w);
     // Gain: manual -> requested; auto -> start at the cap, keep the current value if within the cap
     double newGain = pl->req.gainMode == GainMode::Manual ? pl->req.gainDb : std::min(gainDb_ > 0 ? std::min(gainDb_, pl->gainCapDb) : pl->gainCapDb, pl->gainCapDb);
-    if (pl->req.gainMode == GainMode::Auto && (!plan_ || plan_->req.gainMode != GainMode::Auto || plan_->req.refLevelDbm != pl->req.refLevelDbm)) newGain = pl->gainCapDb;
+    if (pl->req.gainMode == GainMode::Auto && (!plan_ || plan_->req.gainMode != GainMode::Auto || plan_->req.refLevelDbm != pl->req.refLevelDbm)) newGain = pl->gainStartDb;
     if (prof->minGainDb > 0) newGain = std::max(newGain, prof->minGainDb);
     if (std::fabs(newGain - gainDb_) > 0.01 || !plan_) { gainDb_ = usrp_.setGain(newGain); gainChanged_ = true; }
     pl->req.gainDb = gainDb_;
@@ -478,6 +490,7 @@ json Engine::statusJson() {
            {"ddcMsMean", ddcStats_.mean()}, {"ddcMsMax", ddcStats_.n ? ddcStats_.maxv : 0.0}, {"ddcRetunes", ddcStats_.n},
            {"recals", usrp_.recals}, {"recalsInSweep", recalsInSweep_}, {"overflows", rxOverflows_.load()}, {"timeouts", rxTimeouts_.load()},
            {"captureTimeouts", captureTimeouts_}, {"ringFull", ringFull_.load()}, {"zeroRuns", lastZeroRuns_.load()},
+           {"lateStarts", lateStarts_.load()}, {"lastLateStartUs", lateStartUs_.load()},
            {"clipFraction", lastClipFrac_.load()}, {"peakDbfs", lastPeakDbfs_.load()}, {"gainDb", gainDb_}, {"kDbm", kDbm_},
            {"calSource", cal_->source()}, {"calInfo", calInfo_}, {"calibrated", cal_->calibrated()},
            {"calCentresHz", plantedCentres_}, {"lastReplantS", lastReplantS_}, {"uptimeS", nowS() - uptime0_},

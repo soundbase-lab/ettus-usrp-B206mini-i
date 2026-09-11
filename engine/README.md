@@ -61,3 +61,15 @@ threads and sweep loop · `src/protocol.*` frame codec · `src/socket.*` UDS cli
   call time scaled exactly with the capture length). The sweep loop therefore keeps at most two timed DDC retunes
   outstanding (schedules sub-window k+2 once capture k is complete); calls then take 0.03–0.16 ms.
 - Sweeps flagged as clipped are excluded from the server-side holds; auto-gain steps −3 dB per clipped sweep.
+- Auto gain starts at min(cap, 30 dB) and creeps up, not at the cap: starting at the 50 dB cap next to strong DTV
+  clipped for ~10 sweeps while the loop stepped down (2026-09-10).
+- The DSP thread keeps a receive chunk until it is fully consumed. Releasing a partly used chunk made the next
+  sub-window capture start up to one chunk (2 ms at 8 MS/s) late and run past its timed DDC retune, so every
+  sub-window carried a −9 to −12 dB copy of the neighbouring window's spectrum shifted by one window width
+  (a 500.31 MHz DTV pilot showed at 493.5 MHz in every usb2 sweep). A capture that still starts late is shortened
+  to end on schedule and counted in `lateStarts`.
+- Odd (interleaved) sweeps shift the LO grid by half a hop step. The earlier layout re-centred the shifted grid and
+  moved it by a whole step, so odd sweeps reused the even LO frequencies plus one wasted hop.
+- Every LO is kept ≥ 2.5 MHz from the internal spurs (n × 40 MHz reference, n × MCR) where the grid's centring
+  slack allows it. An LO parked 0.85 MHz below 520 MHz showed an intermittent 0.7 MHz burst between the LO and
+  the spur in 1 sweep of 13 (usb3-56, 470–616 MHz); the planner reports the shift as `loGridAutoShiftHz`.

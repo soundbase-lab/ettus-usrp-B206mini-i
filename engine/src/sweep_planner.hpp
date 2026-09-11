@@ -58,7 +58,9 @@ struct SweepPlan {
     size_t samplesPerWindow = 0;
     std::vector<LoPosition> grid[2]; // [0] even sweeps, [1] odd (interleaved) sweeps
     std::vector<double> segCentres;  // calibration-planting centres (one per segment)
+    double loGridAutoShiftHz = 0;    // extra grid shift chosen to keep LOs clear of internal spurs
     double gainCapDb = 60;           // from refLevel via K^-1 (auto mode)
+    double gainStartDb = 30;         // auto mode starts here (<= cap) and creeps up; starting at the cap clipped for ~10 sweeps on strong DTV
     double predictedSweepMs = 0;
     double predictedSigmaDb = 0;
     std::vector<std::string> warnings;
@@ -68,6 +70,8 @@ struct SweepPlan {
 
 // Quantises the request and lays out the sweep. `prof` must already be resolved (auto -> concrete).
 SweepPlan makePlan(const PlanRequest& req, const Profile& prof, const CalModel& cal, bool planChanged);
+// Distance from an LO to the nearest internal spur (n x 40 MHz reference, n x MCR).
+double spurDistanceHz(double loHz, double mcrHz);
 
 const char* dwellName(Dwell d);
 const char* gainModeName(GainMode g);

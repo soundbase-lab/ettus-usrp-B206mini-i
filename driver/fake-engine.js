@@ -209,6 +209,8 @@ function appliedPlan() {
     profile: 'usb3-56',
     gainDb: gainFor(plan),
     gainCapDb: 60,
+    gainStartDb: 30,
+    loGridAutoShiftHz: 0,
     predictedSweepMs: SWEEP_MS,
     predictedSigmaDb: 0.6,
   };
@@ -246,6 +248,7 @@ function emitStatus() {
       calibrated: false,
       calSource: 'default',
       completedSweeps: sweepId,
+      lateStarts: 0,
       // conditions the plugin turns into warnings, switchable for the tests:
       //   SB_USRP_MOCK_OVERLOAD=1    clipping and a hot input
       //   SB_USRP_MOCK_OVERFLOWS=1   the USB link dropping samples

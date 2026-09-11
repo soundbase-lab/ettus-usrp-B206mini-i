@@ -8,6 +8,21 @@ using json = nlohmann::json;
 
 namespace scanner {
 
+// Auto gain starts here (or at the cap if lower) and creeps +3 dB per 3 clean sweeps. Measured 2026-09-10 on a bare
+// antenna next to strong DTV: starting at the 50 dB cap clipped for ~10 sweeps (peak 0 dBFS) before settling at 23-26 dB.
+constexpr double kAutoGainStartDb = 30.0;
+// Minimum distance between any LO and an internal spur (n x 40 MHz reference harmonic or n x MCR).
+constexpr double kLoSpurClearHz = 2.5e6;
+
+double spurDistanceHz(double loHz, double mcrHz) {
+    double d = 1e300;
+    for (double f : {40e6, mcrHz}) {
+        double n = std::round(loHz / f);
+        d = std::min(d, std::fabs(loHz - n * f));
+    }
+    return d;
+}
+
 const char* dwellName(Dwell d) { return d == Dwell::Fast ? "fast" : d == Dwell::Hq ? "hq" : "coordination"; }
 const char* gainModeName(GainMode g) { return g == GainMode::Auto ? "auto" : "manual"; }
 const char* sweepModeName(SweepMode m) { return m == SweepMode::Single ? "single" : "continuous"; }
@@ -58,7 +73,7 @@ json SweepPlan::toJson() const {
     j["profile"] = prof.name; j["profileId"] = prof.id;
     j["stepHz"] = stepHz; j["binCount"] = binCount; j["fftN"] = fftN; j["dfHz"] = dfHz; j["kBins"] = kBins;
     j["nAvg"] = nAvg; j["loHops"] = grid[0].size(); j["loHopsOdd"] = grid[1].size(); j["subWindows"] = prof.subWindows;
-    j["segments"] = segCentres.size(); j["gainCapDb"] = gainCapDb;
+    j["segments"] = segCentres.size(); j["gainCapDb"] = gainCapDb; j["gainStartDb"] = gainStartDb; j["loGridAutoShiftHz"] = loGridAutoShiftHz;
     j["predictedSweepMs"] = predictedSweepMs; j["predictedSigmaDb"] = predictedSigmaDb;
     j["mcrHz"] = prof.mcrHz; j["rateHz"] = prof.rateHz;
     return j;
@@ -71,12 +86,18 @@ static std::vector<LoPosition> layoutGrid(const Profile& p, double spanLo, doubl
     const int K = p.subWindows;
     double width = spanHi - spanLo;
     int M = std::max(1, int(std::ceil((width - kept) / step - 1e-9)) + 1);
-    if (shift != 0) M += 1;
     double covered = kept + (M - 1) * step;
-    double c0 = spanLo - (covered - width) / 2 + kept / 2 + shift;
-    for (int m = 0; m < M; ++m) {
+    double c0 = spanLo - (covered - width) / 2 + kept / 2;   // unshifted grid, centred on the span
+    // Shifted grids (interleave = half a step, or the loGridOffsetHz test hook) keep the same pitch and add a
+    // position at either end as needed; end positions whose neighbour already covers the span edge are dropped.
+    // (Previously the shifted grid was re-centred with M + 1 positions, which moved it by exactly one full step:
+    // odd sweeps reused the even LO frequencies plus one wasted hop below the span, so nothing was interleaved.)
+    std::vector<double> centres;
+    for (int m = -1; m <= M; ++m) centres.push_back(c0 + shift + m * step);
+    while (centres.size() > 1 && centres[1] - kept / 2 <= spanLo + 1e-6) centres.erase(centres.begin());
+    while (centres.size() > 1 && centres[centres.size() - 2] + kept / 2 >= spanHi - 1e-6) centres.pop_back();
+    for (double c : centres) {                       // c = centre of the kept block
         LoPosition lp;
-        double c = c0 + m * step;                    // centre of the kept block
         lp.loHz = (K == 1) ? c + p.loOffsetHz : c;   // K>1: LO at the block centre (a sub-window boundary)
         for (int k = 0; k < K; ++k) {
             SubWindow sw; sw.index = k;
@@ -140,10 +161,11 @@ SweepPlan makePlan(const PlanRequest& in, const Profile& prof, const CalModel& c
     if (r.gainMode == GainMode::Auto) {
         double cap = cal.gainForK(r.refLevelDbm + 10.0, 0.5 * (s0 + s1));
         pl.gainCapDb = clampv(std::round(cap), gMin, std::min(gMax, 60.0));
+        pl.gainStartDb = std::min(pl.gainCapDb, kAutoGainStartDb);
         if (r.gainDb > pl.gainCapDb) r.gainDb = pl.gainCapDb;
         if (r.gainDb < gMin) r.gainDb = gMin;
     } else {
-        pl.gainCapDb = gMax;
+        pl.gainCapDb = gMax; pl.gainStartDb = gMax;
         double g = clampv(std::round(in.gainDb), gMin, gMax);
         if (g != in.gainDb) warn("gainDb clamped to " + std::to_string(g));
         r.gainDb = g;
@@ -153,8 +175,39 @@ SweepPlan makePlan(const PlanRequest& in, const Profile& prof, const CalModel& c
     // LO grids (RF coverage must include half an RBW beyond the outer cells).
     double spanLo = s0 - r.rbwHz / 2, spanHi = s1 + r.rbwHz / 2;
     int segments = 1;
-    pl.grid[0] = layoutGrid(prof, spanLo, spanHi, r.loGridOffsetHz, segments, pl.segCentres);
-    pl.grid[1] = layoutGrid(prof, spanLo, spanHi, r.loGridOffsetHz - prof.hopStepHz() / 2, segments, pl.segCentres);
+    // Keep every LO clear of the internal spur frequencies (n x 40 MHz reference, n x MCR). An LO parked just below
+    // one of them shows intermittent 0.6-0.8 MHz bursts between the LO and the spur (measured 2026-09-10 on
+    // usb3-56: LO 519.15 vs 520.0 MHz in 1 sweep of 13, LO 614.55 vs 616.0 MHz). The grid is centred on the span
+    // with slack, so a small shift is usually free; beyond the slack it costs one hop.
+    auto minSpurDist = [&](double shift) {
+        int segs = 1; std::vector<double> centres; double m = 1e300;
+        for (int parity = 0; parity < 2; ++parity)
+            for (auto& lp : layoutGrid(prof, spanLo, spanHi, shift - (parity ? prof.hopStepHz() / 2 : 0), segs, centres))
+                m = std::min(m, spurDistanceHz(lp.loHz, prof.mcrHz));
+        return m;
+    };
+    double shift = r.loGridOffsetHz, best = minSpurDist(shift);
+    if (best < kLoSpurClearHz) {
+        // Smallest shift that reaches the clearance; failing that, the shift with the largest minimum distance.
+        // Shifts within the grid's slack are free (same hop count); larger ones add a hop and are only tried
+        // when the free range cannot get every LO at least 1 MHz clear.
+        const int M = std::max(1, int(std::ceil(((spanHi - spanLo) - prof.keptHz) / prof.hopStepHz() - 1e-9)) + 1);
+        const double slack = prof.keptHz + (M - 1) * prof.hopStepHz() - (spanHi - spanLo);
+        for (double limit : {slack / 2, prof.hopStepHz() / 2}) {
+            for (double s = 0.5e6; s <= limit + 1e-6 && best < kLoSpurClearHz; s += 0.5e6)
+                for (double cand : {s, -s}) {
+                    double d = minSpurDist(shift + cand);
+                    if (d > best + 1e-3) { best = d; pl.loGridAutoShiftHz = cand; if (best >= kLoSpurClearHz) break; }
+                }
+            if (best >= 1e6) break;
+        }
+        shift += pl.loGridAutoShiftHz;
+        char buf[160];
+        snprintf(buf, sizeof buf, "LO grid shifted %+.1f MHz to keep LOs clear of internal spurs (nearest %.2f MHz)", pl.loGridAutoShiftHz / 1e6, best / 1e6);
+        warn(buf);
+    }
+    pl.grid[0] = layoutGrid(prof, spanLo, spanHi, shift, segments, pl.segCentres);
+    pl.grid[1] = layoutGrid(prof, spanLo, spanHi, shift - prof.hopStepHz() / 2, segments, pl.segCentres);
     if (pl.segCentres.size() > 1) warn("span needs " + std::to_string(pl.segCentres.size()) + " calibration segments (in-sweep recals)");
 
     // Predictions (PLAN.md 4.3 constants)

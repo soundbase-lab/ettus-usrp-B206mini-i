@@ -27,6 +27,7 @@ int main() {
     CHECK(pl.grid[0].back().sub[0].keptHiHz >= 608e6 + 12.5e3 - 1);
     // gain cap from ref level: -50 dBm -> K^-1(-40) = 50 dB
     CHECK(pl.gainCapDb == 50 && pl.req.gainDb == 50);
+    CHECK(pl.gainStartDb == 30);       // auto mode starts below the cap and creeps up
     // 4-window profile: LO on the boundary between sub-windows 1 and 2, offsets +-3.4 / +-10.2 MHz
     PlanRequest r2; r2.profile = "usb2"; auto p2 = makePlan(r2, *findProfile("usb2"), cal, true);
     CHECK(p2.grid[0].size() == 6);
@@ -34,6 +35,27 @@ int main() {
     CHECK(lp.sub.size() == 4);
     CHECK(std::fabs(lp.sub[0].dspHz - 10.2e6) < 1 && std::fabs(lp.sub[1].dspHz - 3.4e6) < 1 && std::fabs(lp.sub[2].dspHz + 3.4e6) < 1 && std::fabs(lp.sub[3].dspHz + 10.2e6) < 1);
     for (auto& sw : lp.sub) CHECK(!(lp.loHz > sw.keptLoHz + 1 && lp.loHz < sw.keptHiHz - 1)); // LO never strictly inside a kept band
+    // interleave: the odd grid is the even grid shifted by half a hop step (one extra position), and still covers the span
+    CHECK(p2.grid[1].size() >= p2.grid[0].size() && p2.grid[1].size() <= p2.grid[0].size() + 1);
+    for (auto& lp : p2.grid[1]) {   // every odd LO sits half a step off the even pitch
+        double k = (lp.loHz - (p2.grid[0].front().loHz - p2.prof.hopStepHz() / 2)) / p2.prof.hopStepHz();
+        CHECK(std::fabs(k - std::round(k)) < 1e-6);
+    }
+    CHECK(p2.grid[1].front().sub.front().keptLoHz <= 470e6 - 12.5e3 + 1);
+    CHECK(p2.grid[1].back().sub.back().keptHiHz >= 608e6 + 12.5e3 - 1);
+    for (size_t i = 1; i < p2.grid[1].size(); ++i) CHECK(p2.grid[1][i].sub.front().keptLoHz < p2.grid[1][i - 1].sub.back().keptHiHz); // adjacent blocks overlap
+    // LOs are kept clear of internal spurs: usb3-56 on 470-616 MHz would park an LO at 519.15 (13 x 40 = 520) and
+    // 614.55 (11 x 56 = 616); the planner shifts the grid instead
+    PlanRequest r5; r5.startHz = 470e6; r5.stopHz = 616e6; r5.profile = "usb3-56";
+    auto p5 = makePlan(r5, *findProfile("usb3-56"), cal, true);
+    CHECK(p5.loGridAutoShiftHz != 0 && std::fabs(p5.loGridAutoShiftHz) <= 22e6);
+    for (int g = 0; g < 2; ++g) for (auto& lp : p5.grid[g]) CHECK(spurDistanceHz(lp.loHz, 56e6) >= 2.5e6);
+    CHECK(p5.grid[0].size() == 4);   // the shift fits in the slack: no extra hop
+    CHECK(p5.grid[0].front().sub[0].keptLoHz <= 470e6 - 12.5e3 + 1 && p5.grid[0].back().sub[0].keptHiHz >= 616e6 + 12.5e3 - 1);
+    // usb2 on 470-608 cannot get 13 LOs 2.5 MHz clear of spurs every 32 and 40 MHz; the free shift must still lift
+    // the worst case (an odd LO right on 512 MHz) to >= 1.5 MHz without adding hops
+    CHECK(p2.grid[0].size() == 6);
+    { double m = 1e300; for (int g = 0; g < 2; ++g) for (auto& lp : p2.grid[g]) m = std::min(m, spurDistanceHz(lp.loHz, 32e6)); CHECK(m >= 1.5e6); }
     // wide span needs several segments
     PlanRequest r3; r3.startHz = 470e6; r3.stopHz = 952e6; r3.profile = "usb2";
     auto p3 = makePlan(r3, *findProfile("usb2"), cal, true);

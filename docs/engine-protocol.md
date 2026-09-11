@@ -117,6 +117,16 @@ it was asked for — the span onto the output grid, the RBW onto what the FFT ca
 realise, the gain to an integer within the profile's window — and its answer is
 the only account of what is really in force.
 
+Besides the echoed request, `applied` carries the planner's own results:
+`stepHz`, `binCount`, `fftN`, `nAvg`, `loHops` / `loHopsOdd` (LO positions on
+even and interleaved odd sweeps), `gainCapDb` (auto-gain ceiling from the
+reference level), `gainStartDb` (where auto gain begins before creeping up),
+`loGridAutoShiftHz` (how far the LO grid was moved to keep every LO clear of
+the radio's internal spur frequencies; a `warnings` entry says so) and
+`predictedSweepMs`. `status` adds `lateStarts`, the count of captures the DSP
+thread could not start on schedule; each is shortened rather than allowed to
+run into the next retune, so a non-zero count is a note, not a fault.
+
 `log` (msgType 4) is `{ "type": "log", "level": "info|warn|error", "msg": "…" }`.
 Warnings and errors reach the plugin's log; info does not.
 

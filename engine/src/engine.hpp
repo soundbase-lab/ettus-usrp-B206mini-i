@@ -136,6 +136,7 @@ private:
     std::vector<double> hopMsRecent_;
     double lastSweepMs_ = 0, sweepsPerSec_ = 0, lastStatusS_ = 0, lastReplantS_ = 0, tempC_ = 0, lastTempS_ = 0, uptime0_ = 0;
     uint64_t captureTimeouts_ = 0, recalsInSweep_ = 0;
+    std::atomic<uint64_t> lateStarts_{0}, lateStartUs_{0}; // captures that could not start on schedule (dsp thread)
     std::atomic<double> lastClipFrac_{0}, lastPeakDbfs_{-300};
     std::atomic<uint32_t> lastZeroRuns_{0}, lastOverflow_{0};
     double lastTDevice_ = 0;
