@@ -60,8 +60,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+      # Assign first so a failing script fails the step (see ci.yml).
       - id: list
-        run: echo "primary=$(node scripts/ci-platforms.mjs --primary)" >> "$GITHUB_OUTPUT"
+        run: |
+          primary=$(node scripts/ci-platforms.mjs --primary)
+          echo "primary=$primary" >> "$GITHUB_OUTPUT"
 
   release:
     needs: platforms

@@ -55,7 +55,7 @@ test('the manifest declares `platforms`, and they follow from `os`', () => {
   );
   assert.deepEqual(
     [...manifest.platforms].sort(),
-    manifestPlatforms().sort(),
+    manifestPlatforms(PLUGIN_PLATFORMS).sort(),
     '`platforms` in soundbase-plugin.json disagrees with `os` in package.json'
   );
   for (const target of manifest.platforms) {
@@ -68,8 +68,8 @@ test('the manifest declares `platforms`, and they follow from `os`', () => {
   assert.ok(manifest.platforms.every((t) => t.startsWith('darwin-')));
   // the derivation itself: unrestricted means every target, an OS without a
   // Desktop build contributes nothing
-  assert.deepEqual(manifestPlatforms([]), [...PLUGIN_PLATFORMS]);
-  assert.deepEqual(manifestPlatforms(['linux']), []);
+  assert.deepEqual(manifestPlatforms(PLUGIN_PLATFORMS, []), [...PLUGIN_PLATFORMS]);
+  assert.deepEqual(manifestPlatforms(PLUGIN_PLATFORMS, ['linux']), []);
 });
 
 test('an unsupported platform gets a reason, not a symptom', () => {
@@ -83,6 +83,26 @@ test('an unsupported platform gets a reason, not a symptom', () => {
       message.includes(platformName(platform)),
       `the message does not say ${platform} works`
     );
+  }
+});
+
+// CI's `platforms` job runs scripts/ci-platforms.mjs on a bare checkout, with
+// nothing installed, and every later job takes its runner from that output.
+// An import from node_modules anywhere in that script's import graph breaks
+// the whole run before a test has executed — and it did, once.
+test('the CI platform script depends on nothing that needs installing', () => {
+  for (const rel of ['../scripts/ci-platforms.mjs', '../driver/platform.js']) {
+    const source = readFileSync(new URL(rel, import.meta.url), 'utf8');
+    const specifiers = [...source.matchAll(/^\s*import[^'"]*['"]([^'"]+)['"]/gm)].map(
+      (m) => m[1]
+    );
+    assert.ok(specifiers.length > 0, `${rel} has no imports to check`);
+    for (const spec of specifiers) {
+      assert.ok(
+        spec.startsWith('node:') || spec.startsWith('.'),
+        `${rel} imports ${spec}, which is not installed when CI computes its matrix`
+      );
+    }
   }
 });
 

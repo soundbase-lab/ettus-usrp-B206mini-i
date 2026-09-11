@@ -21,8 +21,10 @@
 // not a configuration change. Linux would run the engine, but SoundBase
 // Desktop does not ship there, so nothing would install the plugin.
 
+// Node builtins only, on purpose: CI's `platforms` job runs
+// scripts/ci-platforms.mjs before anything is installed, so an import from
+// node_modules here breaks the matrix before a single test runs.
 import { readFileSync } from 'node:fs';
-import { PLUGIN_PLATFORMS } from '@soundbase/plugin-contract';
 
 const pkg = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8')
@@ -69,15 +71,20 @@ export function unsupportedPlatformMessage(platform = process.platform) {
  *
  * The host gates installs on `platforms`, which names SoundBase Desktop builds
  * as `<process.platform>-<process.arch>` and knows only the targets the
- * contract lists (`PLUGIN_PLATFORMS`). Every target whose OS is in `os`
- * belongs there, and nothing else: this plugin has nothing arch-specific — the
- * engine is compiled on the machine it runs on — so an OS is supported on
- * every architecture the Desktop ships for (macOS on Apple silicon and Intel).
+ * contract lists. Every target whose OS is in `os` belongs there, and nothing
+ * else: this plugin has nothing arch-specific — the engine is compiled on the
+ * machine it runs on — so an OS is supported on every architecture the
+ * Desktop ships for (macOS on Apple silicon and Intel).
  *
- * No `os` field means no restriction, which is every target.
+ * `targets` is `PLUGIN_PLATFORMS` from `@soundbase/plugin-contract`, passed
+ * in by the caller so this module stays free of node_modules (see the import
+ * note above). No `os` field means no restriction, which is every target.
+ *
+ * @param {readonly string[]} targets  every `<platform>-<arch>` the host knows
+ * @param {readonly string[]} [os]     `process.platform` values, from package.json
  */
-export function manifestPlatforms(os = SUPPORTED_PLATFORMS) {
-  return PLUGIN_PLATFORMS.filter(
+export function manifestPlatforms(targets, os = SUPPORTED_PLATFORMS) {
+  return targets.filter(
     (target) => os.length === 0 || os.includes(target.split('-')[0])
   );
 }

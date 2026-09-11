@@ -185,8 +185,8 @@ if (manifest && contract) {
 // refuses a release without it, and the Desktop installs only on a target it
 // names — so it has to exist, and it has to follow from `os`, or the two
 // declarations gate different machines.
-if (manifest) {
-  const expected = manifestPlatforms();
+if (manifest && contract) {
+  const expected = manifestPlatforms(contract.PLUGIN_PLATFORMS);
   const declared = manifest.platforms;
   if (!Array.isArray(declared) || declared.length === 0) {
     bad(

@@ -39,11 +39,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      # No install: the script reads package.json and nothing else.
+      # No install: the script reads package.json and nothing else, and
+      # driver/platform.js must stay that way — __tests__/platform.test.js
+      # checks it. Assign before echoing: with `bash -e`, a failed $(...)
+      # inside an echo argument still exits 0, and the job would pass with
+      # empty outputs and take the whole run down at scheduling time with no
+      # message that names the cause.
       - id: list
         run: |
-          echo "runners=$(node scripts/ci-platforms.mjs)" >> "$GITHUB_OUTPUT"
-          echo "primary=$(node scripts/ci-platforms.mjs --primary)" >> "$GITHUB_OUTPUT"
+          runners=$(node scripts/ci-platforms.mjs)
+          primary=$(node scripts/ci-platforms.mjs --primary)
+          echo "runners=$runners" >> "$GITHUB_OUTPUT"
+          echo "primary=$primary" >> "$GITHUB_OUTPUT"
 
   test:
     needs: platforms
