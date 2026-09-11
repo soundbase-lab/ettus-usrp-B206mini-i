@@ -28,6 +28,7 @@ host still loads on an older one; that is deliberate and load-bearing.
 | `runtime` | ✓ | `{ "type": "node", "entrypoint": "main.js" }`. `node` is the only runtime type today, and the entrypoint must resolve inside your plugin folder. |
 | `products` | ✓ | At least one. The models you provide. |
 | `license` | | SPDX id or licence name. **Required by the Lab** before it will accept a release. |
+| `platforms` | | Host targets the plugin runs on, each `<process.platform>-<process.arch>` of a SoundBase Desktop build: `darwin-arm64`, `darwin-x64`, `win32-x64`. **Required by the Lab** on a new release; the Desktop installs only on a target you name. Absent means undeclared, which older hosts run ungated. See below. |
 | `repository` | | URL. Shown to users deciding whether to trust you. |
 | `maintainers` | | `[{ name, email?, url? }]` |
 | `deployment` | | `["managed"]` — spawned and supervised by SoundBase. `"attached"` (a plugin running elsewhere on the network) is reserved and not yet supported. |
@@ -42,15 +43,35 @@ host still loads on an older one; that is deliberate and load-bearing.
 > Changing it later strands every device they configured. `npm run rename
 > <id>` updates the four places it appears.
 
+## `platforms`
+
+```json
+"platforms": ["darwin-arm64", "darwin-x64"]
+```
+
+Where SoundBase Desktop may install this plugin. Each entry is a Desktop build
+target — `<process.platform>-<process.arch>` — and the contract's schema lists
+the ones that exist (`PLUGIN_PLATFORMS` in `@soundbase/plugin-contract`). At
+least one, no repeats.
+
+This plugin derives the list from `os` in `package.json`: every target whose
+OS is in `os`, and nothing else. `manifestPlatforms()` in `driver/platform.js`
+is that rule, `__tests__/platform.test.js` asserts the manifest follows it and
+`npm run doctor` says how to fix it when it does not. This plugin targets
+macOS only, so `os` is `["darwin"]` and the list is the two macOS targets.
+
 ## `contract`
 
 ```json
-"contract": { "core": "1.0", "modules": { "SpectrumAnalyzer": "1.0" } }
+"contract": { "core": "1.2", "modules": { "SpectrumAnalyzer": "1.0" } }
 ```
 
-`core` is mandatory; `modules` names the capability modules you implement.
-`SpectrumAnalyzer` is the only one today. A matching **major** version is
-treated as compatible.
+`core` is mandatory; `modules` names the capability modules you implement. A
+spectrum analyzer implements `SpectrumAnalyzer`; core 1.2 also defines
+`ChannelMonitoring` and `PropertyControl`, for receivers and IEM transmitters,
+which this plugin does not use. A matching **major** version is treated as
+compatible. `npm run doctor` warns when `core` is not what the installed
+contract package implements.
 
 This is the **only** field that governs compatibility. Not `version`, and
 definitely not `template`.
@@ -154,9 +175,10 @@ contract, and an old lineage does not make an incompatible plugin compatible.
   "name": "Acme Networked Analyzer",
   "version": "0.1.0",
   "license": "MIT",
+  "platforms": ["darwin-arm64", "darwin-x64", "win32-x64"],
   "repository": "https://github.com/acme/soundbase-plugin-acme",
   "maintainers": [{ "name": "Acme Instruments", "email": "support@acme.example" }],
-  "contract": { "core": "1.0", "modules": { "SpectrumAnalyzer": "1.0" } },
+  "contract": { "core": "1.2", "modules": { "SpectrumAnalyzer": "1.0" } },
   "runtime": { "type": "node", "entrypoint": "main.js" },
   "deployment": ["managed"],
   "template": { "name": "soundbase-plugin-template", "version": "1.0.0" },

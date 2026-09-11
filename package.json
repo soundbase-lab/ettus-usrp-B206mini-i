@@ -9,8 +9,7 @@
     "node": ">=20"
   },
   "os": [
-    "darwin",
-    "linux"
+    "darwin"
   ],
   "scripts": {
     "start": "node main.js",
@@ -27,8 +26,8 @@
     "pack:release": "node scripts/pack-release.mjs"
   },
   "dependencies": {
-    "@soundbase/plugin-contract": "^0.4.0",
-    "@soundbase/plugin-shell": "^0.4.0"
+    "@soundbase/plugin-contract": "^0.8.0",
+    "@soundbase/plugin-shell": "^0.8.0"
   },
   "soundbase": {
     "template": {

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // The GitHub runners this plugin's CI should use, from `os` in package.json.
 //
-//   node scripts/ci-platforms.mjs             ["ubuntu-latest","macos-latest"]
-//   node scripts/ci-platforms.mjs --primary   ubuntu-latest
+//   node scripts/ci-platforms.mjs             ["macos-latest"]
+//   node scripts/ci-platforms.mjs --primary   macos-latest
 //
 // `--primary` is the single runner for jobs that only need one (booting the
-// plugin, cutting a release). It prefers Linux, which is the cheapest and
-// least contended runner, and falls back to whatever else is supported.
+// plugin, cutting a release). It prefers Linux when that is supported, as the
+// cheapest and least contended runner, and otherwise takes the first runner
+// the declaration allows — macOS, for this plugin.
 //
 // .github/workflows/ci.yml reads this into its matrix, so the platforms a
 // plugin supports are declared once — in package.json, where npm itself

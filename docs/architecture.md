@@ -198,7 +198,7 @@ device whose transport has died must not keep reporting healthy.
 Your manifest declares:
 
 ```json
-"contract": { "core": "1.0", "modules": { "SpectrumAnalyzer": "1.0" } }
+"contract": { "core": "1.2", "modules": { "SpectrumAnalyzer": "1.0" } }
 ```
 
 A matching **major** version is compatible. Unknown modules and unknown

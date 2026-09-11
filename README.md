@@ -22,8 +22,7 @@ UHD is a USB driver layer with udev rules and downloadable FPGA images. It is a
 system prerequisite; no plugin folder can carry it.
 
 ```sh
-brew install cmake ninja uhd                           # macOS
-sudo apt install cmake ninja-build libuhd-dev uhd-host # Debian / Raspberry Pi OS
+brew install cmake ninja uhd
 ```
 
 Then the FPGA and firmware images, once per machine. Without them a B2xx
@@ -123,12 +122,11 @@ radio**. The manual equivalent, in the installed plugin's folder, is
 It is not laziness. The engine links dynamically against libuhd, and the
 binary has to match the UHD on the machine it runs on:
 
-- GitHub's Ubuntu runners ship UHD **4.6**, below the 4.9 the B206mini-i
-  needs, so a Linux build cannot even be produced there with system packages.
 - A macOS build against Homebrew UHD hard-codes that dylib's path and version;
-  a machine with UHD 4.9, or an Intel prefix, fails at load time with a
-  message about a missing library.
-- The Raspberry Pi target builds UHD from source into `/usr/local`.
+  a machine with UHD 4.9, or an Intel prefix (`/usr/local` rather than
+  `/opt/homebrew`), fails at load time with a message about a missing library.
+- Homebrew moves UHD forward on its own schedule, so a binary built this month
+  does not match the library installed next month.
 
 Bundling libuhd itself is the thing
 [docs/native-runtimes.md](docs/native-runtimes.md) tells you not to attempt.
@@ -267,14 +265,18 @@ falls back to proving boot and handshake when nothing is.
 
 ## Platforms
 
-Developed on macOS (Apple silicon, Homebrew UHD 4.10) and deployed on a
-Raspberry Pi 5 running Raspberry Pi OS. Both are exercised regularly.
+**macOS only**, on Apple silicon and Intel. Developed on Apple silicon with
+Homebrew UHD 4.10; the engine is built on the machine it runs on, so an Intel
+Mac with Homebrew UHD works the same way.
 
 **Windows is not supported.** The engine is reached over a Unix domain socket
 and guards the radio with `flock(2)`, neither of which Windows has; Node cannot
 deliver a real `SIGTERM` there either. Supporting it means porting the engine's
 IPC, not changing a setting. This is a real limitation, not an oversight
 waiting to be tidied up.
+
+**Linux is not a target.** The engine would build and run there, but SoundBase
+Desktop does not ship for Linux, so nothing would install the plugin.
 
 That is declared once, as `os` in `package.json` — npm's own field:
 
@@ -285,8 +287,13 @@ That is declared once, as `os` in `package.json` — npm's own field:
 - the adapter refuses to open a device with that sentence, so a user sees the
   reason in the device's status instead of `listen EACCES` from the socket layer
 
-To change the supported set, edit that one field; `__tests__/platform.test.js`
-checks that everything downstream still agrees with it.
+The manifest repeats it as `platforms`, in the host's `<platform>-<arch>`
+vocabulary (`darwin-arm64`, `darwin-x64`): the Lab requires that field on a
+release and SoundBase Desktop installs a plugin only on a target it names.
+
+To change the supported set, edit `os`, then make `platforms` match;
+`__tests__/platform.test.js` and `npm run doctor` check that everything
+downstream — the manifest included — still agrees with it.
 
 The radio wants a USB 3 port. On USB 2 everything still works — the plugin
 detects the link speed and offers only the profiles that fit it — but sweeps

@@ -4,6 +4,10 @@
   "name": "Ettus USRP B206mini-i",
   "version": "0.2.1",
   "license": "BUSL-1.1",
+  "platforms": [
+    "darwin-arm64",
+    "darwin-x64"
+  ],
   "repository": "https://github.com/soundbase-lab/ettus-usrp-B206mini-i",
   "maintainers": [
     {
@@ -12,7 +16,7 @@
     }
   ],
   "contract": {
-    "core": "1.1",
+    "core": "1.2",
     "modules": {
       "SpectrumAnalyzer": "1.0"
     }

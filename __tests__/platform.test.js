@@ -14,8 +14,11 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { PLUGIN_PLATFORMS } from '@soundbase/plugin-contract';
+
 import {
   SUPPORTED_PLATFORMS,
+  manifestPlatforms,
   platformName,
   platformSupported,
   unsupportedPlatformMessage,
@@ -24,6 +27,9 @@ import {
 const pkg = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8')
 );
+const manifest = JSON.parse(
+  readFileSync(new URL('../soundbase-plugin.json', import.meta.url), 'utf8')
+);
 
 test('package.json declares the platforms, in npm’s own field', () => {
   // npm enforces this on install (EBADPLATFORM), which is the earliest and
@@ -31,9 +37,39 @@ test('package.json declares the platforms, in npm’s own field', () => {
   // restore the full CI matrix.
   assert.ok(Array.isArray(pkg.os) && pkg.os.length > 0, 'package.json has no `os`');
   assert.deepEqual([...SUPPORTED_PLATFORMS], pkg.os);
+  assert.deepEqual(pkg.os, ['darwin'], 'this plugin targets macOS only; see driver/platform.js');
   assert.ok(!pkg.os.includes('win32'), 'Windows is not supported; see driver/platform.js');
   assert.ok(pkg.os.includes(process.platform), 'the tests are running somewhere unsupported');
   assert.ok(platformSupported());
+});
+
+// The manifest says the same thing in the host's vocabulary. The Lab refuses a
+// release that does not declare `platforms`, and the host installs only on a
+// target it names — so it has to be there, and it has to agree with `os`, or
+// the Desktop offers this plugin somewhere npm would have refused to install
+// it (or hides it somewhere it works).
+test('the manifest declares `platforms`, and they follow from `os`', () => {
+  assert.ok(
+    Array.isArray(manifest.platforms) && manifest.platforms.length > 0,
+    'soundbase-plugin.json has no `platforms`; the Lab requires it'
+  );
+  assert.deepEqual(
+    [...manifest.platforms].sort(),
+    manifestPlatforms().sort(),
+    '`platforms` in soundbase-plugin.json disagrees with `os` in package.json'
+  );
+  for (const target of manifest.platforms) {
+    assert.ok(PLUGIN_PLATFORMS.includes(target), `${target} is not a host target`);
+    assert.ok(
+      pkg.os.includes(target.split('-')[0]),
+      `${target} is in the manifest but its OS is not in package.json`
+    );
+  }
+  assert.ok(manifest.platforms.every((t) => t.startsWith('darwin-')));
+  // the derivation itself: unrestricted means every target, an OS without a
+  // Desktop build contributes nothing
+  assert.deepEqual(manifestPlatforms([]), [...PLUGIN_PLATFORMS]);
+  assert.deepEqual(manifestPlatforms(['linux']), []);
 });
 
 test('an unsupported platform gets a reason, not a symptom', () => {

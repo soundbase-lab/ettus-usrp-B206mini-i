@@ -88,8 +88,12 @@ plugin↔engine wire.
 - **Platform support is declared once**, as `os` in `package.json`. npm
   enforces it on install, `scripts/ci-platforms.mjs` builds the CI matrix from
   it, `npm run doctor` checks it and `adapter.js` refuses an open with the
-  reason. Do not hardcode a platform list anywhere else, and do not add a
-  Windows job "to see": the engine needs Unix domain sockets and `flock(2)`.
+  reason. The manifest's `platforms` is the same fact in the host's
+  `<platform>-<arch>` vocabulary — the Lab requires it and the Desktop gates
+  installs on it — and is held to `os` by `manifestPlatforms()` in
+  `driver/platform.js`, a test and the doctor. Do not hardcode a platform list
+  anywhere else, and do not add a Windows job "to see": the engine needs Unix
+  domain sockets and `flock(2)`.
 - **Echo the engine's `applied`, never the request.** The engine quantises the
   span onto its grid, the RBW onto what the FFT realises and the gain to an
   integer. Its reply is the only account of what is really in force.

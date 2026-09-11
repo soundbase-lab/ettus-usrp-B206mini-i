@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   SUPPORTED_PLATFORMS,
+  manifestPlatforms,
   platformName,
   platformSupported,
   unsupportedPlatformMessage,
@@ -177,6 +178,32 @@ if (manifest && contract) {
     warn(
       `manifest declares SpectrumAnalyzer ${declaredSa}, the installed contract is ${contract.SA_MODULE_VERSION}`
     );
+  }
+}
+
+// `platforms` is the same fact as `os`, in the host's own vocabulary. The Lab
+// refuses a release without it, and the Desktop installs only on a target it
+// names — so it has to exist, and it has to follow from `os`, or the two
+// declarations gate different machines.
+if (manifest) {
+  const expected = manifestPlatforms();
+  const declared = manifest.platforms;
+  if (!Array.isArray(declared) || declared.length === 0) {
+    bad(
+      'the manifest declares no `platforms`',
+      `the Lab refuses a release without it; set "platforms": ${JSON.stringify(expected)} ` +
+        '(derived from `os` in package.json)'
+    );
+  } else if (
+    [...declared].sort().join() !== [...expected].sort().join()
+  ) {
+    bad(
+      `manifest \`platforms\` is ${JSON.stringify(declared)}, but \`os\` in package.json implies ${JSON.stringify(expected)}`,
+      'edit `os` to change what is supported; `platforms` must list every ' +
+        'host target whose OS it names, and nothing else'
+    );
+  } else {
+    ok(`platforms ${declared.join(', ')} (from \`os\`)`);
   }
 }
 
