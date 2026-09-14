@@ -9,18 +9,40 @@
 //
 //   no engine, tools present   → `connecting`  "Building the sweep engine…"
 //                              → `ok`          (binary exists) | `bad-config` (compiler's last lines)
-//   no engine, tools missing   → `bad-config`  the one install command for this platform
+//   no engine, tools missing   → `needs-setup` the install steps for this platform, in order
+//   engine, no FPGA images     → `needs-setup` the one command that fetches them
 //   "Engine binary" set, absent → `bad-config`  a setting to fix, not something to build over
+//
+// The two `needs-setup` states are waiting on the user's terminal and clear
+// themselves: the plugin re-checks every RETRY_MS while it is in one, so the
+// user runs the commands the status names and watches it carry on — brew
+// finishes, the build starts; the images land, the status goes ok. Nothing
+// asks them to touch a setting to make the plugin look again. A build that
+// failed is not retried on the timer (that would spin a compiler every
+// fifteen seconds); the timer only watches for a binary the user built by hand,
+// and the next config push tries the build again.
 //
 // A user who would rather not have a plugin compile C++ can set "Engine
 // binary" to a build of their own or tick "Simulate a radio"; both short-circuit
 // this before anything is spawned.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { BUILD_HINT, BUILD_SCRIPT, IMAGES_HINT, PLUGIN_ROOT, engineStatus } from './locate.js';
+import { existsSync } from 'node:fs';
+import {
+  BUILD_HINT,
+  BUILD_SCRIPT,
+  IMAGES_COMMAND,
+  PLUGIN_ROOT,
+  engineStatus,
+  mockRequested,
+} from './locate.js';
+import { imagesState, parseImagesDir } from './uhd-images.js';
 
 /** The B206mini-i is not supported before UHD 4.9. */
 export const UHD_MIN = [4, 9];
+
+/** How often the plugin looks again while it is waiting on the user's terminal. */
+export const RETRY_MS = 15_000;
 
 /** How many lines of build output to keep for the failure message. */
 const TAIL_LINES = 12;
@@ -29,12 +51,40 @@ export const BUILDING_MESSAGE =
   'Building the sweep engine for this machine — about a minute the first time. ' +
   'Devices appear when it finishes.';
 
+const RETRY_SECONDS = Math.round(RETRY_MS / 1000);
+
+/** How the waiting states end: on their own, with the terminal steps done. */
+const KEEP_OPEN =
+  `Leave SoundBase open: the plugin checks again every ${RETRY_SECONDS} seconds and carries on by itself ` +
+  'as soon as that is done — no setting to change, no restart.';
+
+const SIMULATE = 'To try it without hardware, tick "Simulate a radio".';
+
+/**
+ * The status for "waiting on the user's machine, not on a setting" — core 1.3,
+ * where the host's badge reads "Needs setup". The shell passes any status
+ * through, so this works under the 1.2 shell in the lockfile too; a 1.2 host
+ * shows the raw value on the badge, which is why the message still opens by
+ * saying what the state is. The manifest declares 1.3 once the contract
+ * package that names it is published and `npm run doctor` can see it.
+ */
+export const NEEDS_SETUP = 'needs-setup';
+
+/** The message says what an older host's badge cannot. */
+const INCOMPLETE = 'Installation incomplete:';
+
 /** `cmake --version` → "cmake version 4.4.3"; null when not installed or broken. */
 function versionOf(command, args = ['--version']) {
+  const out = capture(command, args);
+  return out === null ? null : out.trim().split('\n').find((l) => l.trim()) ?? '';
+}
+
+/** Everything a command printed, or null when it is not installed or failed. */
+function capture(command, args) {
   try {
     const r = spawnSync(command, args, { encoding: 'utf8', timeout: 10_000 });
     if (r.error || r.status !== 0) return null;
-    return `${r.stdout}${r.stderr}`.trim().split('\n').find((l) => l.trim()) ?? '';
+    return `${r.stdout}${r.stderr}`;
   } catch {
     return null;
   }
@@ -62,7 +112,27 @@ export function checkTools({ probe = versionOf } = {}) {
   };
 }
 
-/** The one command that installs what is missing, for this platform. */
+/**
+ * Whether UHD, as this process sees it, has the firmware and FPGA images that
+ * program a B206mini-i. The engine inherits this environment, so what
+ * `uhd_config_info --images-dir` says here is what UHD will find in there.
+ * Without the images the radio powers up and is never seen — the one failure
+ * in the install flow that would otherwise arrive as "no devices" and no clue.
+ *
+ * With no uhd_config_info at all the question cannot be asked; that is not a
+ * missing image (the tools check owns it), so the answer is "fine".
+ */
+export function checkImages({ probe = capture, exists = existsSync } = {}) {
+  const out = probe('uhd_config_info', ['--images-dir']);
+  if (out === null) return { ok: true, dir: '', missing: [] };
+  return imagesState(parseImagesDir(out), exists);
+}
+
+/**
+ * The install steps for this platform, in the order to run them. Each is a
+ * complete command; the images step names the folder because the plugin lives
+ * somewhere the user has never looked.
+ */
 export function prerequisitesMessage(tools, platform = process.platform) {
   const missing = [];
   if (!tools.cmake) missing.push('cmake');
@@ -74,21 +144,34 @@ export function prerequisitesMessage(tools, platform = process.platform) {
     );
   }
   const what = missing.join(' and ');
-  let install;
+  const imagesStep = `${IMAGES_COMMAND} (fetches the USRP firmware and FPGA images UHD needs; without them no radio is ever found)`;
+  let steps;
   if (platform === 'darwin') {
     // Homebrew ships neither the images nor uhd_images_downloader on PATH.
-    install = `brew install cmake ninja uhd, then the FPGA images once — ${IMAGES_HINT}`;
+    steps = `1) brew install cmake ninja uhd   2) ${imagesStep}`;
   } else if (platform === 'linux') {
-    install =
-      `sudo apt install cmake ninja-build libuhd-dev uhd-host, then the FPGA images once — ${IMAGES_HINT}. ` +
+    steps =
+      `1) sudo apt install cmake ninja-build libuhd-dev uhd-host   2) ${imagesStep}. ` +
       `Distribution packages may be older than ${UHD_MIN.join('.')}; then UHD has to come from Ettus’ PPA or from source`;
   } else {
-    install = 'install cmake and UHD';
+    steps = `1) install cmake and UHD   2) ${imagesStep}`;
   }
   return (
-    `The sweep engine cannot be built yet: this machine needs ${what}. ` +
-    `In a terminal: ${install}. The plugin builds the engine itself once they are there ` +
-    '(change any plugin setting to make it look again), or tick "Simulate a radio" to try it without hardware.'
+    `${INCOMPLETE} the sweep engine cannot be built yet, because this machine needs ${what}. ` +
+    `In a terminal, run these in order: ${steps}. ` +
+    `${KEEP_OPEN} The engine builds itself once the tools are there, with progress shown here. ${SIMULATE}`
+  );
+}
+
+/** The engine is fine; UHD has nothing to program the radio with. */
+export function imagesMessage(state) {
+  const where = state.dir
+    ? `UHD’s images folder (${state.dir}) is missing ${state.missing.join(', ')}`
+    : 'UHD has no images folder';
+  return (
+    `${INCOMPLETE} the sweep engine is built, but ${where}, so it cannot program the B206mini-i and no radio will be found. ` +
+    `In a terminal run ${IMAGES_COMMAND} (fetches the USRP firmware and FPGA images; ` +
+    `run it again after upgrading UHD). ${KEEP_OPEN} ${SIMULATE}`
   );
 }
 
@@ -179,47 +262,108 @@ export class EngineBuilder {
 const defaultBuilder = new EngineBuilder();
 
 /**
- * Decide what the plugin's status should be, and start a build if that is the
- * answer. `report(status, message)` is the plugin's updateStatus; it is called
- * synchronously with the current truth and again, later, when a build ends.
- * Returns what it decided, for tests and logs.
+ * The plugin's one pending re-check and the last status it reported. A config
+ * push replaces the timer, so bursts of pushes never stack timers; the last
+ * report is what lets a timer tick stay silent when nothing has changed — the
+ * shell emits an event per report, and a message repeated every fifteen
+ * seconds is noise in the host's log.
  */
-export function reconcileEngine(
-  pluginConfig = {},
-  report,
-  {
+export function createWatch() {
+  return { timer: null, last: null };
+}
+
+const defaultWatch = createWatch();
+
+/**
+ * Decide what the plugin's status should be, start a build if that is the
+ * answer, and arrange to look again if the answer is "waiting on the user".
+ * `report(status, message)` is the plugin's updateStatus; it is called
+ * synchronously with the current truth and again, later, when a build ends or
+ * a re-check finds something changed. Returns what it decided, for tests and
+ * logs:
+ *
+ *   'ok' | 'bad-config' (a setting to fix) | 'building' | 'prerequisites' |
+ *   'images' | 'failed' (a timer tick after a failed build; nothing new to say)
+ */
+export function reconcileEngine(pluginConfig = {}, report, opts = {}) {
+  const {
     status = engineStatus,
     tools = checkTools,
+    images = checkImages,
+    mock = mockRequested,
     builder = defaultBuilder,
     platform = process.platform,
-  } = {}
-) {
+    retryMs = RETRY_MS,
+    watch = defaultWatch,
+    /** Set on timer ticks: repeat nothing, and never restart a failed build. */
+    quiet = false,
+  } = opts;
+
+  if (watch.timer) {
+    clearTimeout(watch.timer);
+    watch.timer = null;
+  }
+  const again = () => {
+    watch.timer = setTimeout(
+      () => reconcileEngine(pluginConfig, report, { ...opts, quiet: true }),
+      retryMs
+    );
+    watch.timer.unref?.();
+  };
+  const say = (s, m) => {
+    if (quiet && watch.last && watch.last.status === s && watch.last.message === m) return;
+    watch.last = { status: s, message: m };
+    report(s, m);
+  };
+
   const now = status(pluginConfig);
   if (now.ok) {
-    report('ok');
+    // The engine is only useful if UHD can program the radio; the fake engine
+    // programs nothing.
+    if (!mock(pluginConfig)) {
+      const found = images();
+      if (!found.ok) {
+        say(NEEDS_SETUP, imagesMessage(found));
+        again();
+        return 'images';
+      }
+    }
+    say('ok');
     return 'ok';
   }
   // A path the user typed that is not there is theirs to fix; building over it
   // would make the setting silently mean nothing.
   if (String(pluginConfig.enginePath ?? '').trim()) {
-    report('bad-config', now.message);
+    say('bad-config', now.message);
     return 'bad-config';
   }
   if (builder.building) {
-    report('connecting', BUILDING_MESSAGE);
+    say('connecting', BUILDING_MESSAGE);
     return 'building';
+  }
+  // After a failed build the timer only watches for a binary built by hand;
+  // a config push is the user asking for another go.
+  if (quiet && builder.lastResult && !builder.lastResult.ok) {
+    again();
+    return 'failed';
   }
   const found = tools();
   if (!found.cmake || !found.uhd.ok) {
-    report('bad-config', prerequisitesMessage(found, platform));
+    say(NEEDS_SETUP, prerequisitesMessage(found, platform));
+    again();
     return 'prerequisites';
   }
-  report('connecting', BUILDING_MESSAGE);
+  say('connecting', BUILDING_MESSAGE);
   builder.start((result) => {
     // The exit code says the script was happy; the binary being there is the
-    // thing that matters, so ask the same question the adapter will.
-    if (result.ok && status(pluginConfig).ok) report('ok');
-    else report('bad-config', buildFailedMessage(result));
+    // thing that matters, so ask the same question the adapter will — and the
+    // next one, whether UHD has its images, which the build says nothing about.
+    if (result.ok && status(pluginConfig).ok) {
+      reconcileEngine(pluginConfig, report, { ...opts, quiet: false });
+    } else {
+      say('bad-config', buildFailedMessage(result));
+      again();
+    }
   });
   return 'building';
 }

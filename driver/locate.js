@@ -40,8 +40,10 @@ export const BUILD_HINT =
  * reasoning as BUILD_HINT: the plugin folder is somewhere the user has never
  * looked. See driver/uhd-images.js for why the images are a separate step.
  */
+export const IMAGES_COMMAND = `\`cd "${PLUGIN_ROOT.replace(/\/$/, '')}" && node scripts/install-images.mjs\``;
+
 export const IMAGES_HINT =
-  `in a terminal run \`cd "${PLUGIN_ROOT.replace(/\/$/, '')}" && node scripts/install-images.mjs\` ` +
+  `in a terminal run ${IMAGES_COMMAND} ` +
   '(fetches the USRP firmware and FPGA images UHD needs; run it again after upgrading UHD)';
 
 const isFile = (p) => {

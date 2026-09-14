@@ -27,7 +27,7 @@ brew install cmake ninja uhd
 
 Then the FPGA and firmware images, once per machine. Without them a B2xx
 powers up (orange LED) but is never programmed, and UHD's discovery returns
-nothing — the plugin says "no device found" with no further clue.
+nothing — inside SoundBase the plugin's status says so and names this command.
 
 ```sh
 npm run images                     # from a checkout
@@ -109,8 +109,9 @@ its own status in the plugin manager:
 |---|---|
 | *Building the sweep engine…* | compiling; about a minute the first time |
 | *ok* | done; devices appear on the next enumeration |
-| *bad-config: this machine needs cmake / UHD 4.9…* | install what it names (`brew install cmake ninja uhd` on macOS), then change any plugin setting to make it look again |
-| *bad-config: the sweep engine failed to build: …* | the compiler's last lines; the message also gives the manual command for the full output |
+| *needs setup: Installation incomplete: … needs cmake / UHD 4.9…* | run the numbered steps it names, in order (`brew install cmake ninja uhd`, then the images command). Leave SoundBase open: the plugin looks again every 15 s and starts the build by itself once the tools are there |
+| *needs setup: Installation incomplete: … UHD has no images folder / is missing …* | the FPGA and firmware images are not installed, so no radio can ever be found. Run the `install-images.mjs` command it names; the status clears by itself within 15 s |
+| *bad-config: the sweep engine failed to build: …* | the compiler's last lines; the message also gives the manual command for the full output. Change any plugin setting to try the build again, or build by hand — the plugin notices the binary by itself |
 
 Nothing compiles if you'd rather it didn't: point **Engine binary** at a build
 you already have (`<checkout>/engine/build/engine`), or tick **Simulate a

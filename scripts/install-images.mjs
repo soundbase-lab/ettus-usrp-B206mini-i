@@ -25,6 +25,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -130,6 +131,16 @@ const state = imagesState(dir, existsSync);
 if (state.ok) {
   say(`done — UHD's images directory is ${dir} and it has the B206mini-i images.`);
   say('if the radio is attached, `uhd_find_devices` should now list it.');
+  // This is the last thing the plugin's status asked for; say what happens
+  // now, so nobody is left looking for a step that does not exist.
+  const engine = fileURLToPath(new URL('../engine/build/engine', import.meta.url));
+  if (existsSync(engine)) {
+    say('the sweep engine is already built: SoundBase picks the images up by itself within 15 seconds.');
+  } else {
+    say('next, the sweep engine: if SoundBase is open it builds it by itself within 15 seconds and shows');
+    say('progress as the plugin\'s status (it does the same the next time it starts). To build it now instead:');
+    say(`  node "${fileURLToPath(new URL('./build-engine.mjs', import.meta.url))}"`);
+  }
 } else if (!dir) {
   fail(
     'the download finished but `uhd_config_info --images-dir` is still blank.',
