@@ -46,7 +46,7 @@ three consecutive failures as a crash.
   "id": "acme-network",
   "name": "Acme Networked Analyzer",
   "version": "0.1.0",
-  "contract": { "core": "1.2", "modules": { "SpectrumAnalyzer": "1.0" } },
+  "contract": { "core": "1.3", "modules": { "SpectrumAnalyzer": "1.0" } },
   "status": { "status": "ok" }
 }
 ```

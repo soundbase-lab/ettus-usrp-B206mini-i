@@ -28,6 +28,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { PLUGIN_STATUS } from '@soundbase/plugin-contract';
 import {
   BUILD_HINT,
   BUILD_SCRIPT,
@@ -62,13 +63,11 @@ const SIMULATE = 'To try it without hardware, tick "Simulate a radio".';
 
 /**
  * The status for "waiting on the user's machine, not on a setting" — core 1.3,
- * where the host's badge reads "Needs setup". The shell passes any status
- * through, so this works under the 1.2 shell in the lockfile too; a 1.2 host
- * shows the raw value on the badge, which is why the message still opens by
- * saying what the state is. The manifest declares 1.3 once the contract
- * package that names it is published and `npm run doctor` can see it.
+ * where the host's badge reads "Needs setup". A 1.2 host shows the raw value
+ * on the badge, which is why the message still opens by saying what the state
+ * is.
  */
-export const NEEDS_SETUP = 'needs-setup';
+export const NEEDS_SETUP = PLUGIN_STATUS.NEEDS_SETUP;
 
 /** The message says what an older host's badge cannot. */
 const INCOMPLETE = 'Installation incomplete:';

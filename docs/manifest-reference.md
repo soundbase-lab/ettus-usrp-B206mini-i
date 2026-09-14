@@ -63,7 +63,7 @@ macOS only, so `os` is `["darwin"]` and the list is the two macOS targets.
 ## `contract`
 
 ```json
-"contract": { "core": "1.2", "modules": { "SpectrumAnalyzer": "1.0" } }
+"contract": { "core": "1.3", "modules": { "SpectrumAnalyzer": "1.0" } }
 ```
 
 `core` is mandatory; `modules` names the capability modules you implement. A
@@ -178,7 +178,7 @@ contract, and an old lineage does not make an incompatible plugin compatible.
   "platforms": ["darwin-arm64", "darwin-x64", "win32-x64"],
   "repository": "https://github.com/acme/soundbase-plugin-acme",
   "maintainers": [{ "name": "Acme Instruments", "email": "support@acme.example" }],
-  "contract": { "core": "1.2", "modules": { "SpectrumAnalyzer": "1.0" } },
+  "contract": { "core": "1.3", "modules": { "SpectrumAnalyzer": "1.0" } },
   "runtime": { "type": "node", "entrypoint": "main.js" },
   "deployment": ["managed"],
   "template": { "name": "soundbase-plugin-template", "version": "1.0.0" },

@@ -16,7 +16,7 @@
     }
   ],
   "contract": {
-    "core": "1.2",
+    "core": "1.3",
     "modules": {
       "SpectrumAnalyzer": "1.0"
     }
