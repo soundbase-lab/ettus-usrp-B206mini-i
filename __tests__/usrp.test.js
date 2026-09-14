@@ -26,7 +26,9 @@ const DEVICE_ID = 'usb:FAKE001';
 const DEVICE_PATH = `/devices/${encodeURIComponent(DEVICE_ID)}`;
 const START_HZ = 470_000_000;
 const STOP_HZ = 608_000_000;
-const POINT_COUNT = 401;
+/** The trace is the acquisition grid: 25 kHz cells from 470 to 608 MHz inclusive. */
+const STEP_HZ = 25_000;
+const POINT_COUNT = (STOP_HZ - START_HZ) / STEP_HZ + 1;
 /** The fake engine's scene: a carrier here, and a transient every seventh sweep. */
 const CARRIER_HZ = 566_050_000;
 const TRANSIENT_HZ = 542_100_000;
@@ -51,7 +53,6 @@ const configure = (patch) =>
   request('POST', `${DEVICE_PATH}/configuration`, {
     startHz: START_HZ,
     stopHz: STOP_HZ,
-    pointCount: POINT_COUNT,
     ...patch,
   });
 
@@ -118,8 +119,16 @@ test('open() reports what this radio can do', async () => {
     'gainDb',
     'gainMode',
     'profile',
+    'refLevelDbm',
   ]);
   assert.ok(controls.gainDb.max <= 76);
+  // the reference level control offers exactly the range the capabilities do
+  assert.equal(controls.refLevelDbm.min, caps.minRefLevelDbm);
+  assert.equal(controls.refLevelDbm.max, caps.maxRefLevelDbm);
+  assert.equal(controls.refLevelDbm.default, -50);
+  // and there is no step limit to offer: the trace is the acquisition grid
+  assert.equal(caps.minStepHz, undefined);
+  assert.equal(caps.maxStepHz, undefined);
 });
 
 // The shell keeps `identity` for the host rather than putting it in /devices,
@@ -147,7 +156,22 @@ test('the configuration echo reports the grid the engine settled on', async () =
   assert.equal(body.stopHz, STOP_HZ);
   assert.equal(body.pointCount, POINT_COUNT);
   assert.equal(body.rbwHz, 25_000);
-  assert.equal(body.stepHz, (STOP_HZ - START_HZ) / (POINT_COUNT - 1));
+  assert.equal(body.stepHz, STEP_HZ);
+
+  // points per sweep is not a setting this radio takes: the cells are the
+  // measurement, and the echo says how many there are
+  const asked = await configure({ pointCount: 401 });
+  assert.equal(asked.body.pointCount, POINT_COUNT);
+  const stepped = await configure({ stepHz: 1_000_000 });
+  assert.equal(stepped.body.pointCount, POINT_COUNT);
+  assert.equal(stepped.body.stepHz, STEP_HZ);
+  // a finer RBW means finer cells, and more of them; a coarser one does not
+  // make the cells coarser than 25 kHz
+  const fine = await configure({ rbwHz: 12_500 });
+  assert.equal(fine.body.pointCount, (STOP_HZ - START_HZ) / 12_500 + 1);
+  const coarse = await configure({ rbwHz: 100_000 });
+  assert.equal(coarse.body.pointCount, POINT_COUNT);
+  await configure({ rbwHz: 25_000 });
 
   // a span that is not on the 25 kHz acquisition grid comes back snapped to it,
   // because that is where the engine really measured
@@ -179,7 +203,70 @@ test('a patch carrying one control leaves the others in force', async () => {
   assert.equal(body.controls.antenna, 'RX2');
 });
 
-test('sweeping produces a spectrum on the requested points', async (t) => {
+// The reference level is the strongest input the trace should carry. In auto
+// gain mode the engine caps the RX gain at −(reference level) — the same method
+// as usrp-scanner — so the gain that comes back is the observable effect. (The
+// fake engine reports the cap at once; the real one starts at 30 dB and creeps
+// up to it over the next sweeps, and its echo is the gain in force right now.)
+// Outside the usable range it is clamped, and the clamped value is the echo.
+test('the reference level sets auto gain, and is clamped to what gain can do', async () => {
+  // the contract's own field, as a host that renders one would send it (the
+  // shell resends every control it has seen, so gain has to be put back to
+  // auto after the clamping test above left it manual)
+  const field = await configure({ refLevelDbm: -40, controls: { gainMode: 'auto' } });
+  assert.equal(field.status, 200);
+  assert.equal(field.body.controls.refLevelDbm, -40);
+  assert.equal(field.body.controls.gainDb, 40);
+
+  // the control, as SoundBase's plugin-device form sends it
+  const control = await configure({ controls: { gainMode: 'auto', refLevelDbm: -30 } });
+  assert.equal(control.body.controls.refLevelDbm, -30);
+  assert.equal(control.body.controls.gainDb, 30);
+
+  const low = await configure({ controls: { refLevelDbm: -90 } });
+  assert.equal(low.body.controls.refLevelDbm, -60, 'more gain than the radio has: the cap');
+  assert.equal(low.body.controls.gainDb, 60);
+
+  const high = await configure({ controls: { refLevelDbm: 10 } });
+  assert.equal(high.body.controls.refLevelDbm, 0, 'negative gain does not exist');
+  assert.equal(high.body.controls.gainDb, 0);
+
+  // a patch that says nothing about it leaves it in force
+  const other = await configure({ controls: { detector: 'rms' } });
+  assert.equal(other.body.controls.refLevelDbm, 0);
+  assert.equal(other.body.controls.gainDb, 0);
+
+  // manual gain is the user's number, whatever the reference level says
+  const manual = await configure({ controls: { gainMode: 'manual', gainDb: 20 } });
+  assert.equal(manual.body.controls.gainDb, 20);
+  assert.equal(manual.body.controls.refLevelDbm, 0);
+
+  await configure({ controls: { gainMode: 'auto', refLevelDbm: -50 } });
+});
+
+test('the control wins over the field when one patch carries both', async () => {
+  const { createSpectrumAnalyzerAdapter } = await import('../adapter.js');
+  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, { mock: true });
+  try {
+    await adapter.open();
+    const both = await adapter.applyConfig({
+      refLevelDbm: -20,
+      controls: { refLevelDbm: -35 },
+    });
+    assert.equal(both.refLevelDbm, -35);
+    assert.equal(both.controls.refLevelDbm, -35);
+    assert.equal(both.controls.gainDb, 35);
+    // the echo is the engine's, not the request: a level between integers
+    // still maps onto an integer gain
+    const fraction = await adapter.applyConfig({ controls: { refLevelDbm: -42.4 } });
+    assert.equal(fraction.controls.refLevelDbm, -42.4);
+    assert.equal(fraction.controls.gainDb, 42);
+  } finally {
+    await adapter.close();
+  }
+});
+
+test('sweeping produces a spectrum on the acquisition grid', async (t) => {
   await configure({ rbwHz: 25_000 });
   const started = await request('POST', `${DEVICE_PATH}/sweep/start`);
   assert.equal(started.status, 200);

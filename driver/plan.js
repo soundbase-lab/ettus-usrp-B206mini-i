@@ -1,14 +1,17 @@
 // Turning a SoundBase sweep configuration into an engine plan, and an engine
-// sweep back into the points SoundBase asked for.
+// sweep back into the trace SoundBase draws.
 //
-// The two sides disagree about geometry in one important way. The engine sweeps
-// its own grid: `stepHz = min(25 kHz, RBW)`, `startHz` floored onto that grid and
-// `stopHz` ceiled, because that is what its LO plan and FFT cells produce.
-// SoundBase wants exactly `pointCount` amplitudes and reconstructs frequencies as
-// `startHz + i·(stopHz − startHz)/(pointCount − 1)`. So the adapter echoes the
-// grid the engine settled on and resamples each sweep onto the requested number
-// of points — which is why `resampleTrace` and the `applyConfig` echo have to be
-// derived from the same numbers.
+// The engine sweeps its own grid: `stepHz = min(25 kHz, RBW)`, `startHz` floored
+// onto that grid and `stopHz` ceiled, because that is what its LO plan and FFT
+// cells produce. SoundBase reconstructs frequencies as
+// `startHz + i·(stopHz − startHz)/(pointCount − 1)`, so the adapter echoes the
+// grid the engine settled on and hands every cell back as a point. A requested
+// point count or step is not a setting this radio takes: the cells are the
+// measurement, and asking for more of them invents resolution the radio did
+// not measure while asking for fewer throws away resolution it did. The only
+// time the trace is coarser than the grid is when the grid would not fit in
+// one trace response, and then cells are collapsed by an integer factor so the
+// points still sit on cell centres.
 //
 // Everything here is pure. The engine's `applied` echo is authoritative for what
 // it did; these functions only shape requests and reshape results.
@@ -33,13 +36,27 @@ export const GAIN_HARD_CAP_DB = 60;
 export const GAIN_MIN_DB = 0;
 export const GAIN_MAX_DB = 76;
 
-/** Reference levels that map onto a usable gain: g = 10 − (ref + 10). */
+/**
+ * Reference levels that map onto a usable gain.
+ *
+ * The reference level is the strongest input the trace is expected to carry.
+ * In auto gain mode the engine caps the RX gain at `K⁻¹(refLevel + 10 dB)`,
+ * which with its built-in `K(g) = 10 − g` model is simply `g = −refLevel`, and
+ * never above the hard cap — so a reference level of −50 dBm means at most
+ * 50 dB of gain, and the usable reference levels are exactly those that land
+ * between 0 dB and the cap. Same method as usrp-scanner; the engine also
+ * restarts its auto-gain creep from `gainStartDb` whenever the level changes.
+ */
 export const MIN_REF_LEVEL_DBM = -GAIN_HARD_CAP_DB;
 export const MAX_REF_LEVEL_DBM = 0;
+/** 50 dB of gain: the right starting point for a UHF venue scan. */
+export const DEFAULT_REF_LEVEL_DBM = -50;
 
-/** Guard against a wide span at a fine step producing an enormous trace. */
+/**
+ * The most points one trace carries. A 6 GHz span at 6.25 kHz is 950 000
+ * cells; beyond this the trace is decimated by an integer factor instead.
+ */
 export const MAX_POINTS = 32768;
-export const MIN_POINTS = 2;
 
 export const DWELLS = ['fast', 'coordination', 'hq'];
 export const DETECTORS = ['rms', 'peak', 'sample', 'min'];
@@ -49,13 +66,6 @@ export const USB3_PROFILES = ['usb3-16', 'usb3-28', 'usb3-32', 'usb3-56'];
 
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 export const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
-
-/** The nearest value in `choices`, for snapping a request onto what exists. */
-export function nearest(value, choices) {
-  return choices.reduce((best, candidate) =>
-    Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best
-  );
-}
 
 /**
  * The engine's output grid for a span and RBW: start floored, stop ceiled, step
@@ -78,21 +88,26 @@ export function snapToGrid(startHz, stopHz, rbwHz) {
 }
 
 /**
- * How many points to return for a configuration patch.
+ * The trace SoundBase gets for an engine grid: every cell, as a point.
  *
- * `pointCount` wins over `stepHz` (the shell has already applied that rule, but
- * a device added by hand can carry either), and with neither we hand back the
- * engine's own cells — the finest honest answer, capped so a 6 GHz span at
- * 25 kHz does not produce a 240 000-point array.
+ * `pointCount` is not taken from the request — see the header. When the grid
+ * has more cells than one trace may carry, `factor` adjacent cells collapse
+ * into each point, and `stopHz` is pulled in to the last point actually
+ * reported so that SoundBase's reconstructed axis still lands on cell centres.
+ * Whatever `applyConfig` echoes and whatever `traceToPoints` produces come
+ * from this one object, which is what keeps the plot at the right frequencies.
  */
-export function resolvePointCount(cfg, grid, previous) {
-  let n;
-  if (isNum(cfg.pointCount)) n = Math.round(cfg.pointCount);
-  else if (isNum(cfg.stepHz) && cfg.stepHz > 0) {
-    n = Math.round((grid.stopHz - grid.startHz) / cfg.stepHz) + 1;
-  } else if (isNum(previous)) n = previous;
-  else n = grid.binCount;
-  return clamp(n, MIN_POINTS, MAX_POINTS);
+export function nativeGeometry(grid, maxPoints = MAX_POINTS) {
+  const factor = Math.max(1, Math.ceil(grid.binCount / maxPoints));
+  const pointCount = Math.max(2, Math.ceil(grid.binCount / factor));
+  const stepHz = grid.stepHz * factor;
+  return {
+    startHz: grid.startHz,
+    stopHz: grid.startHz + (pointCount - 1) * stepHz,
+    stepHz,
+    pointCount,
+    factor,
+  };
 }
 
 /**
@@ -148,44 +163,25 @@ export function reducerFor(detector) {
 }
 
 /**
- * Resample a filled series onto `pointCount` points spanning `[startHz, stopHz]`.
+ * Collapse every `factor` adjacent cells into one point.
  *
- * When SoundBase asks for fewer points than the engine has cells, each point is
- * the reduction of the cells whose centres fall in its bucket — `max` by default
- * rather than a mean, because a mean averages away a carrier narrower than the
- * point spacing, and a coordination scan exists to find exactly those. When it
- * asks for more, points repeat the nearest cell; the plugin never invents
- * resolution the radio did not measure.
+ * `max` by default rather than a mean, because a mean averages away a carrier
+ * narrower than the point spacing, and a coordination scan exists to find
+ * exactly those; `min` when the trace is a negative-peak one, so a
+ * minimum-hold request does not report peaks instead. A factor of 1 is the
+ * common case and copies the cells through.
  */
-export function resampleTrace(
-  source,
-  { startHz, stopHz, pointCount, reducer = 'max' }
-) {
-  const { startHz: srcStart, stepHz: srcStep, values } = source;
+export function decimate(values, factor, reducer = 'max') {
   const n = values.length;
-  const out = new Array(pointCount);
-  const outStep = pointCount > 1 ? (stopHz - startHz) / (pointCount - 1) : 0;
-  const half = (outStep > 0 ? outStep : srcStep) / 2;
-  for (let j = 0; j < pointCount; j += 1) {
-    const fc = startHz + j * outStep;
-    let i0 = Math.ceil((fc - half - srcStart) / srcStep - 1e-9);
-    let i1 = Math.floor((fc + half - srcStart) / srcStep + 1e-9);
-    i0 = Math.max(0, i0);
-    i1 = Math.min(n - 1, i1);
-    if (i1 < i0) {
-      const near = clamp(Math.round((fc - srcStart) / srcStep), 0, n - 1);
-      out[j] = round1(values[near]);
-      continue;
-    }
-    let acc = values[i0];
-    if (reducer === 'mean') {
-      let sum = 0;
-      for (let i = i0; i <= i1; i += 1) sum += 10 ** (values[i] / 10);
-      acc = 10 * Math.log10(sum / (i1 - i0 + 1));
-    } else if (reducer === 'min') {
-      for (let i = i0 + 1; i <= i1; i += 1) if (values[i] < acc) acc = values[i];
+  const k = Math.max(1, Math.floor(factor));
+  const out = new Array(Math.ceil(n / k));
+  for (let j = 0, i = 0; i < n; j += 1, i += k) {
+    const end = Math.min(n, i + k);
+    let acc = values[i];
+    if (reducer === 'min') {
+      for (let m = i + 1; m < end; m += 1) if (values[m] < acc) acc = values[m];
     } else {
-      for (let i = i0 + 1; i <= i1; i += 1) if (values[i] > acc) acc = values[i];
+      for (let m = i + 1; m < end; m += 1) if (values[m] > acc) acc = values[m];
     }
     out[j] = round1(acc);
   }
@@ -195,7 +191,7 @@ export function resampleTrace(
 const round1 = (v) => Math.round(v * 10) / 10;
 
 /**
- * A complete engine frame in dBm, resampled onto the requested points.
+ * A complete engine frame in dBm, on the points `nativeGeometry` promised.
  * Returns null when the sweep carried no usable cell, which is a sweep to skip
  * rather than a device error.
  */
@@ -204,8 +200,8 @@ export function traceToPoints(frame, trace, mask, geometry, offsetDb = 0) {
   if (!filled) return null;
   const add = frame.kDbm + offsetDb;
   for (let i = 0; i < filled.length; i += 1) filled[i] += add;
-  return resampleTrace(
-    { startHz: frame.startHz, stepHz: frame.stepHz, values: filled },
-    geometry
-  );
+  const points = decimate(filled, geometry.factor ?? 1, geometry.reducer);
+  // A frame is only handed here when it matches the grid, so this is a
+  // belt-and-braces check that the promise to SoundBase is kept exactly.
+  return points.length === geometry.pointCount ? points : null;
 }

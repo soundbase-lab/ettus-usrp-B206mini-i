@@ -1,21 +1,24 @@
-// The geometry the engine sweeps on, and the points SoundBase draws.
+// The geometry the engine sweeps on, and the trace SoundBase draws.
 //
-// These two grids are not the same and never will be: the engine's cells fall
-// on multiples of min(25 kHz, RBW) because that is what its LO plan produces,
-// and SoundBase wants exactly `pointCount` amplitudes evenly spaced from
-// startHz to stopHz. Everything that can go wrong in between — a trace that
-// looks right but sits one cell off in frequency, a carrier averaged away by a
-// coarser request, a masked spur drawn as a cliff — goes wrong here.
+// The engine's cells fall on multiples of min(25 kHz, RBW) because that is what
+// its LO plan produces, and SoundBase draws point i at
+// startHz + i·(stopHz − startHz)/(pointCount − 1). The plugin hands the cells
+// over as the points, so those two only agree if the echoed startHz, stopHz and
+// pointCount describe the cells exactly. Everything that can go wrong — a trace
+// that looks right but sits one cell off in frequency, a carrier lost when a
+// huge grid is decimated, a masked spur drawn as a cliff — goes wrong here.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  MAX_POINTS,
+  decimate,
   fillGaps,
+  nativeGeometry,
   reducerFor,
-  resampleTrace,
-  resolvePointCount,
   snapToGrid,
+  traceToPoints,
 } from '../driver/plan.js';
 
 test('a span snaps outwards onto the acquisition grid', () => {
@@ -29,16 +32,40 @@ test('a span snaps outwards onto the acquisition grid', () => {
   assert.equal(snapToGrid(470e6, 608e6, 6.25e3).stepHz, 6.25e3);
 });
 
-test('pointCount wins over stepHz, and neither means the native cells', () => {
+test('the trace is the grid: one point per cell, whatever was asked for', () => {
   const grid = snapToGrid(470e6, 608e6, 25e3);
-  assert.equal(resolvePointCount({ pointCount: 401, stepHz: 1e6 }, grid), 401);
-  assert.equal(resolvePointCount({ stepHz: 1e6 }, grid), 139);
-  assert.equal(resolvePointCount({}, grid), grid.binCount);
-  // a previous count survives a patch that says nothing about geometry
-  assert.equal(resolvePointCount({}, grid, 401), 401);
-  // and an absurd request is clamped rather than refused
-  assert.ok(resolvePointCount({ pointCount: 1e9 }, grid) < 1e9);
-  assert.equal(resolvePointCount({ pointCount: 0 }, grid), 2);
+  const geometry = nativeGeometry(grid);
+  assert.equal(geometry.pointCount, grid.binCount);
+  assert.equal(geometry.startHz, grid.startHz);
+  assert.equal(geometry.stopHz, grid.stopHz);
+  assert.equal(geometry.stepHz, grid.stepHz);
+  assert.equal(geometry.factor, 1);
+  // SoundBase reconstructs the axis from start, stop and count, and that has
+  // to land every point on a cell centre
+  const reconstructed =
+    (geometry.stopHz - geometry.startHz) / (geometry.pointCount - 1);
+  assert.equal(reconstructed, grid.stepHz);
+});
+
+test('a grid too large for one trace is decimated, and the echo says so', () => {
+  // 6.25 kHz cells across the whole tuning range: ~950 000 of them
+  const grid = snapToGrid(70e6, 6e9, 6.25e3);
+  assert.ok(grid.binCount > MAX_POINTS);
+  const geometry = nativeGeometry(grid);
+  assert.ok(geometry.pointCount <= MAX_POINTS);
+  assert.ok(geometry.factor > 1);
+  // points stay on cell centres: the step is a whole number of cells, and the
+  // echoed stop is the last point actually reported
+  assert.equal(geometry.stepHz, grid.stepHz * geometry.factor);
+  assert.equal(
+    geometry.stopHz,
+    geometry.startHz + (geometry.pointCount - 1) * geometry.stepHz
+  );
+  assert.ok(geometry.stopHz <= grid.stopHz);
+  assert.equal(
+    geometry.pointCount,
+    decimate(new Float64Array(grid.binCount), geometry.factor).length
+  );
 });
 
 test('holes and masked cells are filled from their neighbours', () => {
@@ -50,70 +77,60 @@ test('holes and masked cells are filled from their neighbours', () => {
   assert.equal(fillGaps([Number.NaN, Number.NaN]), null);
 });
 
-test('coarsening keeps the peak, because a narrow carrier is the point', () => {
+test('decimation keeps the peak, because a narrow carrier is the point', () => {
   // 25 kHz cells across 1 MHz, with a carrier 40 dB up in exactly one of them
   const values = new Float64Array(41).fill(-105);
   values[20] = -60;
-  const source = { startHz: 500e6, stepHz: 25e3, values };
 
-  const points = resampleTrace(source, {
-    startHz: 500e6,
-    stopHz: 501e6,
-    pointCount: 5,
-  });
+  const points = decimate(values, 10);
   assert.equal(points.length, 5);
   assert.equal(points[2], -60, 'the carrier survives a 250 kHz point spacing');
   assert.deepEqual(points.slice(0, 2), [-105, -105]);
 
-  // a mean would lose it, which is why max is the default and mean is opt-in
-  const averaged = resampleTrace(source, {
-    startHz: 500e6,
-    stopHz: 501e6,
-    pointCount: 5,
-    reducer: 'mean',
-  });
-  assert.ok(averaged[2] < -65, `mean kept ${averaged[2]}`);
-
-  // and a minimum-hold request must not report the peak instead
-  const minimum = resampleTrace(source, {
-    startHz: 500e6,
-    stopHz: 501e6,
-    pointCount: 5,
-    reducer: 'min',
-  });
-  assert.equal(minimum[2], -105);
+  // a negative-peak trace must not report the peak instead
+  assert.equal(decimate(values, 10, 'min')[2], -105);
   assert.equal(reducerFor('min'), 'min');
   assert.equal(reducerFor('rms'), 'max');
+
+  // a factor of one is a copy, to a tenth of a dB
+  assert.deepEqual(decimate(Float64Array.from([-100.04, -50.06]), 1), [-100, -50.1]);
 });
 
 test('points land on the frequencies SoundBase reconstructs', () => {
-  // SoundBase draws point i at startHz + i·(stopHz − startHz)/(pointCount − 1),
-  // so a feature at a known frequency has to come back at the matching index.
-  const values = new Float64Array(5521).fill(-105);
+  // a feature at a known frequency has to come back at the matching index,
+  // both on the native grid and after decimation
+  const grid = snapToGrid(470e6, 608e6, 25e3);
+  const values = new Float32Array(grid.binCount).fill(-105);
   const carrierHz = 542.1e6;
-  values[Math.round((carrierHz - 470e6) / 25e3)] = -50;
-  const source = { startHz: 470e6, stepHz: 25e3, values };
+  const cell = Math.round((carrierHz - 470e6) / 25e3);
+  values[cell] = -50;
+  const frame = { startHz: grid.startHz, stepHz: grid.stepHz, kDbm: 0 };
 
-  const pointCount = 401;
-  const points = resampleTrace(source, {
-    startHz: 470e6,
-    stopHz: 608e6,
-    pointCount,
-  });
-  assert.equal(points.length, pointCount);
-  const peakIndex = points.indexOf(Math.max(...points));
-  const expected = Math.round(((carrierHz - 470e6) / 138e6) * (pointCount - 1));
-  assert.equal(peakIndex, expected);
+  const native = nativeGeometry(grid);
+  const points = traceToPoints(frame, { values }, undefined, { ...native, reducer: 'max' });
+  assert.equal(points.length, native.pointCount);
+  assert.equal(points.indexOf(Math.max(...points)), cell);
+
+  const coarse = nativeGeometry(grid, 1000);
+  const fewer = traceToPoints(frame, { values }, undefined, { ...coarse, reducer: 'max' });
+  assert.equal(fewer.length, coarse.pointCount);
+  const peakIndex = fewer.indexOf(Math.max(...fewer));
+  const expected = Math.round(
+    ((carrierHz - coarse.startHz) / (coarse.stopHz - coarse.startHz)) * (coarse.pointCount - 1)
+  );
+  assert.ok(Math.abs(peakIndex - expected) <= 1, `carrier drawn at ${peakIndex}, expected ${expected}`);
 });
 
-test('asking for more points than there are cells repeats them, never invents', () => {
-  const values = Float64Array.from([-100, -50, -100]);
-  const points = resampleTrace(
-    { startHz: 500e6, stepHz: 25e3, values },
-    { startHz: 500e6, stopHz: 500.05e6, pointCount: 11 }
+test('the level offset and kDbm reach every point, and a dead sweep is null', () => {
+  const grid = snapToGrid(500e6, 500.1e6, 25e3);
+  const geometry = { ...nativeGeometry(grid), reducer: 'max' };
+  const frame = { startHz: grid.startHz, stepHz: grid.stepHz, kDbm: -40 };
+  const values = new Float32Array(grid.binCount).fill(-60);
+  assert.deepEqual(traceToPoints(frame, { values }, undefined, geometry, 2.5), [
+    -97.5, -97.5, -97.5, -97.5, -97.5,
+  ]);
+  assert.equal(
+    traceToPoints(frame, { values: new Float32Array(grid.binCount).fill(NaN) }, undefined, geometry),
+    null
   );
-  assert.equal(points.length, 11);
-  // every value came from a cell that was measured
-  for (const p of points) assert.ok([-100, -50].includes(p), `invented ${p}`);
-  assert.equal(points[5], -50);
 });

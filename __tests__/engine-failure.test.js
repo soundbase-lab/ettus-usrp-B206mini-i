@@ -19,6 +19,8 @@ import assert from 'node:assert/strict';
 
 const DEVICE_ID = 'usb:FAKE001';
 const DEVICE_PATH = `/devices/${encodeURIComponent(DEVICE_ID)}`;
+/** The trace is the acquisition grid: 25 kHz cells from 470 to 608 MHz inclusive. */
+const NATIVE_POINTS = (608e6 - 470e6) / 25e3 + 1;
 
 const handle = await (await import('../main.js')).default;
 
@@ -55,7 +57,6 @@ test('an engine that dies fails its device and leaves the plugin alive', async (
   const configured = await request('POST', `${DEVICE_PATH}/configuration`, {
     startHz: 470e6,
     stopHz: 608e6,
-    pointCount: 401,
   });
   assert.equal(configured.status, 200);
   await request('POST', `${DEVICE_PATH}/sweep/start`);
@@ -84,15 +85,14 @@ test('the device recovers on the next operation once the radio is back', async (
   const reopened = await request('POST', `${DEVICE_PATH}/configuration`, {
     startHz: 470e6,
     stopHz: 608e6,
-    pointCount: 401,
   });
   assert.equal(reopened.status, 200);
-  assert.equal(reopened.body.pointCount, 401);
+  assert.equal(reopened.body.pointCount, NATIVE_POINTS);
 
   await request('POST', `${DEVICE_PATH}/sweep/start`);
   const trace = await request('GET', `${DEVICE_PATH}/trace`);
   assert.equal(trace.status, 200);
-  assert.equal(trace.body.amplitudesDbm.length, 401);
+  assert.equal(trace.body.amplitudesDbm.length, NATIVE_POINTS);
   await request('POST', `${DEVICE_PATH}/sweep/stop`);
 });
 

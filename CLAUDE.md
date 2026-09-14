@@ -176,11 +176,26 @@ JavaScript codec, so a C++ protocol change fails there.
 **Changing sweep geometry**
 
 > Read `driver/plan.js` and the geometry section of
-> `docs/engine-protocol.md` first. The engine sweeps its own grid and SoundBase
-> wants exactly `pointCount` points; whatever `applyConfig` echoes and whatever
-> `resampleTrace` produces have to be derived from the same numbers, or the
-> trace draws at the wrong frequencies. Add the case to
+> `docs/engine-protocol.md` first. The trace is the engine's own grid: a
+> requested `pointCount` or `stepHz` is deliberately ignored, and every cell is
+> a point unless the grid exceeds `MAX_POINTS`, when cells collapse by an
+> integer factor. Whatever `applyConfig` echoes and whatever `traceToPoints`
+> produces have to come from the same `nativeGeometry` object, or the trace
+> draws at the wrong frequencies. Add the case to
 > `__tests__/geometry.test.js`, which is where that class of bug is caught.
+> Do not bring point-count resampling back: the cells are the measurement.
+
+**The reference level**
+
+> It is the strongest input the trace should carry. In auto gain mode the
+> engine caps the RX gain at `K⁻¹(refLevel + 10 dB)` — `g = −refLevel` with the
+> built-in `K(g) = 10 − g` model — never above `GAIN_HARD_CAP_DB`, and restarts
+> its gain creep when the level changes. That is usrp-scanner's method and the
+> engine already implements it; the plugin's job is the range (`MIN/MAX_REF_LEVEL_DBM`
+> in `driver/plan.js`), the clamp, and the echo from the engine's `applied`.
+> It is both a declared control (`refLevelDbm`, the knob SoundBase renders
+> for a plugin device) and the contract's top-level `refLevelDbm` field; the
+> control wins when a patch carries both, and both write the same plan field.
 
 **Changing the engine**
 

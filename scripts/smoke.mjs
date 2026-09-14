@@ -111,10 +111,11 @@ try {
       ? Math.min(caps.maxFrequencyHz, startHz + 146_000_000)
       : 616_000_000;
 
+    // No point count: the trace is the radio's own acquisition grid, and the
+    // echo says how many cells that is.
     const applied = await post(`/devices/${device}/configuration`, {
       startHz,
       stopHz,
-      pointCount: 401,
     });
     ok(
       `configuration applied — ${applied.startHz}–${applied.stopHz} Hz, ` +

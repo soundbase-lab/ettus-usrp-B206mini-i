@@ -3,8 +3,8 @@
 // The radio is driven by the C++ sweep engine in engine/ — it owns libuhd, the
 // LO plan, the FFTs and the stitching, and it is a separate process precisely
 // so that a wedged USB call cannot take this plugin down with it. driver/ is
-// the JavaScript half: spawning that process, decoding its frames, and turning
-// its grid into the points SoundBase asked for.
+// the JavaScript half: spawning that process, decoding its frames, and handing
+// its grid to SoundBase as the trace.
 //
 //   adapter.js          the contract: discovery, configuration, sweeps
 //   driver/engine-client.js   the engine process and its Unix socket
@@ -30,10 +30,12 @@ import {
 } from './driver/platform.js';
 import {
   ANTENNAS,
+  DEFAULT_REF_LEVEL_DBM,
   DETECTORS,
   DEVICE_MAX_HZ,
   DEVICE_MIN_HZ,
   DWELLS,
+  GAIN_HARD_CAP_DB,
   GAIN_MAX_DB,
   GAIN_MIN_DB,
   MAX_REF_LEVEL_DBM,
@@ -44,8 +46,8 @@ import {
   VBW_PRESETS_HZ,
   clamp,
   isNum,
+  nativeGeometry,
   reducerFor,
-  resolvePointCount,
   traceToPoints,
 } from './driver/plan.js';
 
@@ -264,6 +266,7 @@ class UsrpAnalyzerAdapter {
         : [...USB2_PROFILES];
 
     this.controls = {
+      refLevelDbm: this.plan?.refLevelDbm ?? DEFAULT_REF_LEVEL_DBM,
       gainMode: this.plan?.gainMode ?? 'auto',
       gainDb: this.plan?.gainDb ?? 50,
       dwell: this.plan?.dwell ?? 'coordination',
@@ -282,11 +285,29 @@ class UsrpAnalyzerAdapter {
       // usable reference levels are exactly those that map onto a legal gain.
       minRefLevelDbm: MIN_REF_LEVEL_DBM,
       maxRefLevelDbm: MAX_REF_LEVEL_DBM,
-      // The acquisition grid is min(25 kHz, RBW); asking for points closer
-      // together than that does not buy any more resolution.
-      minStepHz: Math.min(...RBW_PRESETS_HZ),
-      maxStepHz: 10e6,
+      // No minStepHz / maxStepHz: the trace is the acquisition grid,
+      // min(25 kHz, RBW), whatever point count or step was asked for.
       controls: [
+        // The reference level is also a top-level field of the contract's
+        // sweep configuration, and applyConfig honours it there too. It is
+        // declared as a control as well because that is the form SoundBase
+        // renders for a plugin device, and because the shell echoes a
+        // control's clamped value where it echoes the top-level field as
+        // requested. Both write the same engine plan field.
+        {
+          id: 'refLevelDbm',
+          type: 'number',
+          label: 'Reference level',
+          unit: 'dBm',
+          default: this.controls.refLevelDbm,
+          min: MIN_REF_LEVEL_DBM,
+          max: MAX_REF_LEVEL_DBM,
+          step: 1,
+          help:
+            'The strongest input the trace should carry. Auto gain is set to ' +
+            `−(reference level), so −50 dBm means 50 dB of gain, capped at ${GAIN_HARD_CAP_DB} dB. ` +
+            'Raise it when the overload warning appears; lower it to hear weaker signals.',
+        },
         {
           id: 'gainMode',
           type: 'dropdown',
@@ -296,7 +317,7 @@ class UsrpAnalyzerAdapter {
             { id: 'auto', label: 'Auto (from reference level)' },
             { id: 'manual', label: 'Manual' },
           ],
-          help: 'Auto backs the gain off to keep the reference level from clipping the front end.',
+          help: 'Auto caps the gain at −(reference level) and backs off further if the front end clips.',
         },
         {
           id: 'gainDb',
@@ -416,12 +437,11 @@ class UsrpAnalyzerAdapter {
         Math.max(...VBW_PRESETS_HZ)
       );
     }
+    // The contract's own reference level field. A host that renders it sends
+    // it here; the control of the same name (below) wins when both arrive,
+    // because the control is the knob the user can see.
     if (isNum(cfg.refLevelDbm)) {
-      plan.refLevelDbm = clamp(
-        cfg.refLevelDbm,
-        MIN_REF_LEVEL_DBM,
-        MAX_REF_LEVEL_DBM
-      );
+      plan.refLevelDbm = clampRefLevel(cfg.refLevelDbm);
     }
     Object.assign(plan, this.#controlPlan(cfg.controls));
 
@@ -432,27 +452,28 @@ class UsrpAnalyzerAdapter {
     this.plan = { ...(this.plan ?? {}), ...applied };
     this.detector = this.plan.detector ?? 'rms';
 
+    // The trace is the engine's grid. `pointCount` and `stepHz` in the request
+    // are deliberately not consulted: the cells are the measurement, and the
+    // echo tells SoundBase how many there are.
     const grid = {
       startHz: applied.startHz,
       stopHz: applied.stopHz,
       stepHz: applied.stepHz,
       binCount: applied.binCount,
     };
-    const pointCount = resolvePointCount(cfg, grid, this.geometry?.pointCount);
     this.geometry = {
-      startHz: grid.startHz,
-      stopHz: grid.stopHz,
-      stepHz: grid.stepHz,
-      binCount: grid.binCount,
-      pointCount,
+      ...nativeGeometry(grid),
+      grid,
       reducer: reducerFor(this.detector),
     };
 
     const effective = {
-      startHz: grid.startHz,
-      stopHz: grid.stopHz,
-      pointCount,
+      startHz: this.geometry.startHz,
+      stopHz: this.geometry.stopHz,
+      pointCount: this.geometry.pointCount,
+      refLevelDbm: this.plan.refLevelDbm,
       controls: {
+        refLevelDbm: this.plan.refLevelDbm,
         gainMode: this.plan.gainMode,
         gainDb: this.plan.gainDb,
         dwell: this.plan.dwell,
@@ -478,6 +499,9 @@ class UsrpAnalyzerAdapter {
     const pick = (value, allowed) =>
       typeof value === 'string' && allowed.includes(value) ? value : undefined;
 
+    if (isNum(controls.refLevelDbm)) {
+      plan.refLevelDbm = clampRefLevel(controls.refLevelDbm);
+    }
     const gainMode = pick(controls.gainMode, ['auto', 'manual']);
     if (gainMode) plan.gainMode = gainMode;
     if (isNum(controls.gainDb)) {
@@ -573,11 +597,21 @@ class UsrpAnalyzerAdapter {
 
 /** True when a frame was measured on the grid the current configuration means. */
 function sameGrid(frame, geometry) {
+  const { grid } = geometry;
   return (
-    frame.binCount === geometry.binCount &&
-    Math.abs(frame.startHz - geometry.startHz) < 1 &&
-    Math.abs(frame.stepHz - geometry.stepHz) < 1e-6
+    frame.binCount === grid.binCount &&
+    Math.abs(frame.startHz - grid.startHz) < 1 &&
+    Math.abs(frame.stepHz - grid.stepHz) < 1e-6
   );
+}
+
+/**
+ * A reference level the engine can honour. Outside the range it is snapped,
+ * not refused: −90 dBm asks for more gain than the radio has and gets the
+ * hard cap; +10 dBm asks for negative gain and gets none.
+ */
+function clampRefLevel(dbm) {
+  return clamp(dbm, MIN_REF_LEVEL_DBM, MAX_REF_LEVEL_DBM);
 }
 
 /**

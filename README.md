@@ -139,7 +139,8 @@ Building where UHD lives is the honest option, and it takes about a minute.
 |---|---|
 | **Range** | 70 MHz – 6 GHz, the B200-series tuning range |
 | **RBW** | 6.25, 12.5, 25, 50, 100, 200 kHz — realised by the engine, echoed back as realised |
-| **Cells** | the acquisition grid is `min(25 kHz, RBW)`; SoundBase's points are resampled from it |
+| **Points** | the trace *is* the acquisition grid, `min(25 kHz, RBW)` per cell — 5521 points across 470–608 MHz at 25 kHz. SoundBase's *points per sweep* setting is not a setting this radio takes: the plugin ignores it and echoes the cell count, so the form shows what the radio measured |
+| **Reference level** | −60 to 0 dBm, default −50. In auto gain mode the RX gain is capped at `−refLevel` (never above 60 dB), the same method as usrp-scanner: −50 dBm means 50 dB of gain. Raise it when the overload warning appears |
 | **Sweep rate** | ~70 ms for 138 MHz at 25 kHz RBW on USB 3; roughly 5× that on USB 2 |
 | **Detector** | RMS average, positive peak, sample, negative peak |
 | **Trace modes** | max-hold, min-hold and average are accumulated by the shell, at the engine's full sweep rate |
@@ -147,13 +148,13 @@ Building where UHD lives is the honest option, and it takes about a minute.
 
 ### Device controls
 
-Beyond the settings SoundBase knows about (range, RBW, VBW, reference level,
-point count), the plugin declares six of its own, which SoundBase renders
-generically:
+Beyond the settings SoundBase knows about (range, RBW, VBW), the plugin
+declares seven of its own, which SoundBase renders generically:
 
 | Control | |
 |---|---|
-| **Gain** | `auto` derives the RX gain from the reference level (`g = −refLevel`, capped at 60 dB); `manual` uses the value below |
+| **Reference level** | the strongest input the trace should carry, −60 to 0 dBm. Also accepted as the contract's own `refLevelDbm` field; the control wins when both arrive, and a value outside the range is clamped and echoed |
+| **Gain** | `auto` derives the RX gain from the reference level (`g = −refLevel`, capped at 60 dB) and creeps up from 30 dB, backing off if the front end clips; `manual` uses the value below |
 | **RX gain** | 0–76 dB, used in manual mode |
 | **Dwell** | `fast`, `coordination`, `hq` — how long each sub-window is integrated for, and so how steady the trace is |
 | **Detector** | which detector the reported trace comes from |
