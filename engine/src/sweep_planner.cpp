@@ -45,6 +45,7 @@ std::vector<std::string> PlanRequest::applyJson(const json& j) {
             else if (k == "profile") profile = v.get<std::string>();
             else if (k == "antenna") antenna = v.get<std::string>();
             else if (k == "interleave") interleave = v.get<bool>();
+            else if (k == "imageReject") imageReject = v.get<bool>();
             else if (k == "analogBwHz") analogBwHz = v.get<double>();
             else if (k == "loGridOffsetHz") loGridOffsetHz = v.get<double>();
             else if (k == "dwell") { auto s = v.get<std::string>(); dwell = s == "fast" ? Dwell::Fast : s == "hq" ? Dwell::Hq : Dwell::Coordination; }
@@ -64,7 +65,7 @@ json PlanRequest::toJson() const {
     return json{{"startHz", startHz}, {"stopHz", stopHz}, {"rbwHz", rbwHz}, {"vbwHz", vbwHz},
                 {"dwell", dwellName(dwell)}, {"gainMode", gainModeName(gainMode)}, {"gainDb", gainDb},
                 {"refLevelDbm", refLevelDbm}, {"profile", profile}, {"detector", detectorName(detector)},
-                {"antenna", antenna}, {"interleave", interleave}, {"mode", sweepModeName(mode)},
+                {"antenna", antenna}, {"interleave", interleave}, {"imageReject", imageReject}, {"mode", sweepModeName(mode)},
                 {"window", windowName(window)}, {"analogBwHz", analogBwHz}, {"loGridOffsetHz", loGridOffsetHz}};
 }
 
@@ -215,7 +216,10 @@ SweepPlan makePlan(const PlanRequest& in, const Profile& prof, const CalModel& c
     double captureMs = 1e3 * double(pl.samplesPerWindow) / prof.rateHz;
     double perLo = hopDeadMs + prof.subWindows * (captureMs + ddcGuardMs) + 0.8 /* rx latency */;
     double recals = double(std::max<size_t>(0, pl.segCentres.size() - 1)) * (prof.mcrHz > 40e6 ? 55.0 : 107.0);
-    pl.predictedSweepMs = perLo * pl.grid[0].size() + recals + (planChanged ? 220.0 : 0.0);
+    // Alternating grids: the cost per sweep is the mean of the two, since they differ by a hop.
+    const double hopsPerSweep = r.imageReject ? 0.5 * double(pl.grid[0].size() + pl.grid[1].size())
+                                              : double(pl.grid[0].size());
+    pl.predictedSweepMs = perLo * hopsPerSweep + recals + (planChanged ? 220.0 : 0.0);
     double kEff = 0.39 * pl.kBins;
     pl.predictedSigmaDb = 4.34 / std::sqrt(pl.nAvg * std::max(1.0, kEff));
     return pl;

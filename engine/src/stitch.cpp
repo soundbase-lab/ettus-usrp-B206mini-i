@@ -47,9 +47,13 @@ bool EqTable::save(const std::string& path) const {
 void SweepGrid::configure(double startHz, double stepHz, uint32_t binCount, double rbwHz, const SpurTable& spurs) {
     bool sameGrid = (start_ == startHz && step_ == stepHz && n_ == binCount);
     start_ = startHz; step_ = stepHz; n_ = binCount; rbw_ = rbwHz;
-    v1_.assign(n_, 0); v2_.assign(n_, 0); pk_.assign(n_, 0); mn_.assign(n_, 0); sm_.assign(n_, 0);
+    v1_.assign(n_, 0); v2_.assign(n_, 0); pk_.assign(n_, 0); pk2_.assign(n_, 0);
+    mn_.assign(n_, 0); sm_.assign(n_, 0); sm2_.assign(n_, 0);
     cnt_.assign(n_, 0); mask_.assign(n_, proto::MaskHole);
     if (!sameGrid) { lastAvg_.assign(n_, std::numeric_limits<float>::quiet_NaN()); lastPk_ = lastAvg_; }
+    // A new grid invalidates the sliding comparison: the cells no longer mean the same frequencies.
+    prevAvg_.assign(n_, 0); prevPk_.assign(n_, 0); prevSm_.assign(n_, 0); prevOk_.assign(n_, 0);
+    havePrev_ = false;
     spurCells_.clear();
     for (double fs : spurs.freqsHz) {
         long jLo = long(std::ceil((fs - spurs.halfWidthHz - rbw_ / 2 - start_) / step_));
@@ -63,6 +67,7 @@ void SweepGrid::beginSweep() {
     std::fill(cnt_.begin(), cnt_.end(), 0);
     std::fill(mask_.begin(), mask_.end(), proto::MaskHole);
     std::fill(pk_.begin(), pk_.end(), 0.f);
+    std::fill(pk2_.begin(), pk2_.end(), 0.f);
     std::fill(mn_.begin(), mn_.end(), 0.f);
     filled_ = 0; overflow_ = false; clipFrac_ = 0; peakDbfs_ = -300; clipN_ = 0; sampN_ = 0; zeroRuns_ = 0;
 }
@@ -85,7 +90,8 @@ void SweepGrid::addSegment(const CellMap& map, const float* avg, const float* pe
         float g = eq ? eq->factor(sw.index, off) : 1.f;
         float a = avg[j] * g;
         if (cnt_[c] == 0) { v1_[c] = a; pk_[c] = peak[j] * g; mn_[c] = minv[j] * g; sm_[c] = sample[j] * g; }
-        else { v2_[c] = a; pk_[c] = std::max(pk_[c], peak[j] * g); mn_[c] = std::min(mn_[c], minv[j] * g); }
+        // The min detector is combined here because min is already the image-rejecting choice.
+        else { v2_[c] = a; pk2_[c] = peak[j] * g; sm2_[c] = sample[j] * g; mn_[c] = std::min(mn_[c], minv[j] * g); }
         if (cnt_[c] < 2) cnt_[c]++;
         mask_[c] &= uint8_t(~proto::MaskHole);
         if (segClip) mask_[c] |= proto::MaskClip;
@@ -101,8 +107,16 @@ void SweepGrid::finalize() {
         if (cnt_[c] == 2) {
             float a = v1_[c], b = v2_[c];
             float ratioDb = std::fabs(linToDb(a) - linToDb(b));
-            if (ratioDb > 6.f) { v1_[c] = std::min(a, b); mask_[c] |= proto::MaskImage; }
-            else v1_[c] = 0.5f * (a + b);
+            if (ratioDb > 6.f) {
+                // Two measurements of one cell that disagree: one of them is carrying an image or a
+                // spur, and it is the louder one. Take the quieter measurement whole — its peak and
+                // sample too, or a rejected image would survive in the other detectors.
+                if (b < a) { v1_[c] = b; pk_[c] = pk2_[c]; sm_[c] = sm2_[c]; }
+                mask_[c] |= proto::MaskImage;
+            } else {
+                v1_[c] = 0.5f * (a + b);
+                pk_[c] = std::max(pk_[c], pk2_[c]);
+            }
             cnt_[c] = 1; // merged
         }
     }
@@ -127,6 +141,38 @@ void SweepGrid::finalize() {
             else mask_[c] |= proto::MaskHole;
         } else { lastAvg_[c] = v1_[c]; lastPk_[c] = pk_[c]; }
     }
+}
+
+void SweepGrid::rejectImagesAgainstPrevious(double referenceDb) {
+    // A cell counts as measured only if it holds real data: hole fill and spur fill are inventions
+    // and comparing against them would reject honest signal.
+    constexpr uint8_t kNotMeasured = proto::MaskHole | proto::MaskInterp | proto::MaskLoHole;
+    std::vector<float> curAvg(v1_.begin(), v1_.begin() + n_);
+    std::vector<float> curPk(pk_.begin(), pk_.begin() + n_);
+    std::vector<float> curSm(sm_.begin(), sm_.begin() + n_);
+    std::vector<uint8_t> curOk(n_, 0);
+    for (uint32_t c = 0; c < n_; ++c) curOk[c] = (mask_[c] & kNotMeasured) ? 0 : 1;
+
+    const bool comparable = havePrev_ && std::fabs(referenceDb - prevRefDb_) < 0.01;
+    if (comparable) {
+        for (uint32_t c = 0; c < n_; ++c) {
+            if (!curOk[c] || !prevOk_[c]) continue;
+            const float a = curAvg[c], b = prevAvg_[c];
+            if (!(a > 0) || !(b > 0)) continue;
+            if (std::fabs(linToDb(a) - linToDb(b)) > 6.f) {
+                if (b < a) { v1_[c] = b; pk_[c] = prevPk_[c]; sm_[c] = prevSm_[c]; }
+                mask_[c] |= proto::MaskImage;
+            } else {
+                // The two agree, so both are honest: average them and keep the louder peak. Doing
+                // this on every sweep rather than only on some is what keeps the level steady —
+                // alternating between the two grids' own responses is what a moving floor looks like.
+                v1_[c] = 0.5f * (a + b);
+                pk_[c] = std::max(curPk[c], prevPk_[c]);
+            }
+        }
+    }
+    prevAvg_.swap(curAvg); prevPk_.swap(curPk); prevSm_.swap(curSm); prevOk_.swap(curOk);
+    prevRefDb_ = referenceDb; havePrev_ = true;
 }
 
 void SweepGrid::toDb(float* a, float* p, float* m, float* s, uint32_t upTo) const {

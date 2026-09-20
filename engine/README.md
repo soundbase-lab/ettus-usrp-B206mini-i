@@ -37,10 +37,27 @@ but `build/engine` is where it looks first.
 | `engine --probe [--cycles N]` | open/close cycles, prints serial, usb_version, link rate, temperature (milestone 0) |
 | `engine --socket run/engine.sock` | serve the Node supervisor (server listens, engine connects) |
 | `engine --profile usb2-simple --dump out.csv --sweeps 5 [--start 470 --stop 608 --rbw 25 --vbw 2.5 --gain 40 --dwell fast]` | CLI sweeps, WWB CSV of the last sweep, status JSON on stdout |
+| `engine --record out.frames [--seconds 30]` | log every frame to a file, length-prefixed exactly as the socket carries them; combines with `--socket`, so a capture taken while SoundBase drives the engine is the same file. Read it back with `node scripts/read-frames.mjs` |
 | `engine --emit-fixtures ../__tests__/fixtures` | golden frames for the JavaScript codec tests |
 | `engine --eqcap data/eq/usb2.eq.json --profile usb2 --sweeps 100` | flatness table on a 50 Ω load (milestone 3) |
 | `engine --calwrite cal.json` | write UHD `pwr_cal` tables from CW measurements (milestone 3) |
 | `engine --guardtest run/guard.json` | settle time after LO hops vs gain |
+
+`--image-reject` alternates the LO grid each sweep and combines each sweep with the previous one,
+keeping the quieter measurement of each cell. It removes receiver images — 25% of sweeps to none,
+measured — for about 17% of the sweep rate. Capture `data/eq/<profile>.eq.json` with `--eqcap` first:
+without it the two placements' own frequency responses combine into a level ripple of several dB.
+See the `imageReject` section of `docs/engine-protocol.md`.
+
+Three debug tools read what `--record` writes: `npm run frames -- FILE` prints one row per sweep
+(gain, K, flags, median, p10, held cells); `npm run blocks -- FILE` reports how each 6 MHz
+channel's level moved over the capture and says whether the movement is the receiver's (floor,
+common mode or LO-grid parity moving) or the air's (channels moving independently — fading);
+and `npm run viewer` draws the sweep on a page — live from the radio with image rejection on,
+as the plugin runs it (`--no-image-reject` for the raw engine), or `-- --file FILE` to scrub a
+capture. The viewer's lower plot keeps the p10 floor and the whole-trace median on separate
+axes: in UHF the median is the DTV level and fades with the air, and is not the floor. None of
+the three is part of the plugin.
 
 Environment: `SCANNER_CLIP_DEBUG=1` logs per-window clipping. `UHD_LOG_FASTPATH_DISABLE=1` is set automatically.
 A lock file (`--lock`, default `run/engine.lock`) refuses a second engine on the same device.

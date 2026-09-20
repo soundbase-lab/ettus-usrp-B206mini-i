@@ -56,6 +56,7 @@ const DEFAULT_PLAN = {
   detector: 'rms',
   antenna: 'RX2',
   interleave: false,
+  imageReject: false,
   mode: 'continuous',
   window: 'bh4',
   analogBwHz: 0,

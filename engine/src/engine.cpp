@@ -29,6 +29,7 @@ bool Engine::open(std::string& err) {
     if (auto c = loadUhdCal(inf.serial, desired_.antenna, calInfo)) { cal_ = std::move(c); }
     calInfo_ = calInfo;
     LOGI("calibration: %s", calInfo_.c_str());
+    usrp_.setAutoCorrections(opt_.rxIqAuto, opt_.rxDcAuto);
     return true;
 }
 
@@ -219,6 +220,9 @@ void Engine::processCapture(const CaptureRequest& r, const int16_t* iq, size_t n
     }
     if (r.lastInSweep) {
         grid_.finalize();
+        // The other LO grid measured these same cells one sweep ago. Where the two disagree, one of
+        // them is carrying an image: an image moves with the LO, a signal does not.
+        if (r.plan->req.imageReject) grid_.rejectImagesAgainstPrevious(r.gainDb);
         lastClipFrac_ = grid_.clipFraction(); lastPeakDbfs_ = grid_.peakDbfs();
         lastZeroRuns_ = grid_.zeroRuns(); lastOverflow_ = grid_.overflowSeen() ? 1 : 0;
         emitTrace(r, true);
@@ -231,7 +235,7 @@ void Engine::emitTrace(const CaptureRequest& r, bool complete) {
     proto::Header h;
     h.msgType = complete ? proto::TraceComplete : proto::TracePartial;
     h.flags = r.flags;
-    if (complete) h.flags |= proto::FlagSweepComplete;
+    if (complete) h.flags |= uint16_t(proto::FlagSweepComplete) | r.sweepFlags;
     if (grid_.overflowSeen()) h.flags |= proto::FlagOverflowSeen;
     if (grid_.clipped()) h.flags |= proto::FlagClipped;
     if (usrp_.info().usbVersion < 3) h.flags |= proto::FlagUsb2;
@@ -349,9 +353,11 @@ void Engine::applyPlan() {
     }
     json applied{{"type", "applied"}, {"requested", req.toJson()}, {"applied", pl->toJson()}, {"warnings", pl->warnings}};
     emitFrame(proto::makeJsonFrame(proto::StatusJson, applied.dump(), 0, lastTDevice_, prof->id));
-    LOGI("plan: %s %.3f-%.3f MHz rbw %.1f kHz N=%d nAvg=%d hops=%zu bins=%u gain=%.0f cap=%.0f predicted %.0f ms",
+    LOGI("plan: %s %.3f-%.3f MHz rbw %.1f kHz N=%d nAvg=%d hops=%zu%s bins=%u gain=%.0f cap=%.0f predicted %.0f ms",
          prof->name.c_str(), pl->req.startHz / 1e6, pl->req.stopHz / 1e6, pl->req.rbwHz / 1e3, pl->fftN, pl->nAvg,
-         pl->grid[0].size(), pl->binCount, gainDb_, pl->gainCapDb, pl->predictedSweepMs);
+         pl->grid[0].size(),
+         pl->req.imageReject ? " alternating with the shifted grid (image reject)" : "", pl->binCount, gainDb_,
+         pl->gainCapDb, pl->predictedSweepMs);
     emitStatus();
 }
 
@@ -377,6 +383,7 @@ void Engine::reconfigure(const Profile& p, const PlanRequest& req) {
 }
 
 void Engine::plant() {
+    if (!opt_.plantCalPoints) { needPlant_ = false; LOGI("cal-point planting disabled"); return; }
     if (!plan_) return;
     plantedCentres_ = plan_->segCentres;
     for (double c : plantedCentres_) {
@@ -390,7 +397,11 @@ void Engine::plant() {
 
 void Engine::runSweep() {
     auto pl = plan_;
-    const auto& grid = pl->gridFor(sweepId_ + 1);
+    // imageReject alternates the LO grid every sweep and combines each sweep with the one before it
+    // (SweepGrid::rejectImagesAgainstPrevious). Sweeping both grids back to back would cost a whole
+    // extra sweep per output; this way the pair slides, every sweep still emits, and the only cost is
+    // the one extra LO position the shifted grid carries.
+    const auto& grid = pl->req.imageReject ? pl->grid[(sweepId_ + 1) & 1] : pl->gridFor(sweepId_ + 1);
     sweepId_++;
     // auto gain: react to the previous sweep's clip statistics
     if (pl->req.gainMode == GainMode::Auto && completedSweeps_ > 0) {
@@ -409,6 +420,9 @@ void Engine::runSweep() {
     uint16_t flags = 0;
     if (recalFlag_) { flags |= proto::FlagRecalHappened; recalFlag_ = false; }
     if (gainChanged_) { flags |= proto::FlagGainChanged; gainChanged_ = false; }
+    // Every sticky bit raised anywhere in this sweep. The last request of the sweep is queued
+    // after the final LO hop, so by then this holds everything that happened during it.
+    uint16_t sweepSticky = flags & uint16_t(proto::FlagRecalHappened | proto::FlagGainChanged);
     const double fs = pl->prof.rateHz, capS = double(pl->samplesPerWindow) / fs;
     const double guardS = opt_.guardMs * 1e-3, ddcGuardS = opt_.ddcGuardMs * 1e-3;
     auto tSweep0 = Clock::now();
@@ -419,7 +433,7 @@ void Engine::runSweep() {
         const double loExact = lp.loHz; // the same double is reused for all sub-window DDC retunes
         auto tr = usrp_.tuneManual(loExact, lp.sub[0].dspHz);
         hopStats_.add(tr.callMs); hopMsRecent_.push_back(tr.callMs); if (hopMsRecent_.size() > 256) hopMsRecent_.erase(hopMsRecent_.begin());
-        if (tr.recal) { recalsInSweep_++; needPlant_ = true; flags |= proto::FlagRecalHappened; LOGW("LO hop to %.3f MHz took %.0f ms: calibration point moved, will re-plant", loExact / 1e6, tr.callMs); }
+        if (tr.recal) { recalsInSweep_++; needPlant_ = true; flags |= proto::FlagRecalHappened; sweepSticky |= proto::FlagRecalHappened; LOGW("LO hop to %.3f MHz took %.0f ms: calibration point moved, will re-plant", loExact / 1e6, tr.callMs); }
         double tAfter = usrp_.timeNowS();
         double tStart0 = tAfter + guardS;
         uint64_t lastId = 0;
@@ -456,7 +470,7 @@ void Engine::runSweep() {
             rq->loHz = tk.rfHz;
             rq->firstInSweep = (i == 0 && kidx == 0); rq->lastInSweep = (i + 1 == grid.size() && kidx + 1 == lp.sub.size());
             rq->lastSubOfLo = (kidx + 1 == lp.sub.size());
-            rq->flags = flags; rq->gainDb = float(gainDb_); rq->kDbm = float(kDbm_); rq->plan = pl;
+            rq->flags = flags; rq->sweepFlags = sweepSticky; rq->gainDb = float(gainDb_); rq->kDbm = float(kDbm_); rq->plan = pl;
             lastId = rq->id; ids.push_back(rq->id);
             requests_.commitWrite();
         }

@@ -273,6 +273,12 @@ class UsrpAnalyzerAdapter {
       detector: this.plan?.detector ?? 'rms',
       antenna: this.plan?.antenna ?? 'RX2',
       profile: 'auto',
+      // On by default, and deliberately not read back from the engine's plan:
+      // the engine defaults it off, and this is the plugin's policy. The B2xx
+      // front end intermittently puts a hump centred on the LO into the trace
+      // when a strong block sits just above it; measuring each cell at two LO
+      // placements and keeping the quieter removes it, for ~17% of sweep rate.
+      imageReject: true,
     };
     this.detector = this.controls.detector;
 
@@ -361,6 +367,13 @@ class UsrpAnalyzerAdapter {
           choices: ANTENNAS.map((id) => ({ id, label: id })),
         },
         {
+          id: 'imageReject',
+          type: 'checkbox',
+          label: 'Image rejection',
+          default: true,
+          help: 'Measures every cell at two LO placements and keeps the quieter, which removes the receiver\'s own images. Costs about a sixth of the sweep rate.',
+        },
+        {
           id: 'profile',
           type: 'dropdown',
           label: 'Acquisition profile',
@@ -444,6 +457,13 @@ class UsrpAnalyzerAdapter {
       plan.refLevelDbm = clampRefLevel(cfg.refLevelDbm);
     }
     Object.assign(plan, this.#controlPlan(cfg.controls));
+    // The engine starts with image rejection off. Send the plugin's policy the
+    // first time the engine's plan disagrees with it, and never again unless
+    // the host changes the control — so a patch that only moves the span does
+    // not carry a replan it did not ask for.
+    if (plan.imageReject === undefined && previous.imageReject !== this.controls.imageReject) {
+      plan.imageReject = this.controls.imageReject;
+    }
 
     // An empty patch still has to answer with the effective configuration, and
     // asking the engine costs one round trip — so ask, and echo its reply.
@@ -480,6 +500,7 @@ class UsrpAnalyzerAdapter {
         detector: this.plan.detector,
         antenna: this.plan.antenna,
         profile: this.controls.profile,
+        imageReject: this.plan.imageReject,
       },
     };
     // A request that named an RBW gets the realised one back; a request that
@@ -513,6 +534,7 @@ class UsrpAnalyzerAdapter {
     if (detector) plan.detector = detector;
     const antenna = pick(controls.antenna, ANTENNAS);
     if (antenna) plan.antenna = antenna;
+    if (typeof controls.imageReject === 'boolean') plan.imageReject = controls.imageReject;
     const profile = pick(controls.profile, [
       'auto',
       ...USB2_PROFILES,

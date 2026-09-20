@@ -126,6 +126,18 @@ TuneOutcome Usrp::tuneManualAt(double atS, double rfHz, double dspHz) {
     return o;
 }
 
+void Usrp::setAutoCorrections(bool iqBalance, bool dcOffset) {
+    CallGuard g(*this);
+    try {
+        usrp_->set_rx_iq_balance(iqBalance, 0);
+        LOGI("rx iq balance tracking: %s", iqBalance ? "on" : "off");
+    } catch (const std::exception& e) { LOGW("set_rx_iq_balance failed: %s", e.what()); }
+    try {
+        usrp_->set_rx_dc_offset(dcOffset, 0);
+        LOGI("rx dc offset tracking: %s", dcOffset ? "on" : "off");
+    } catch (const std::exception& e) { LOGW("set_rx_dc_offset failed: %s", e.what()); }
+}
+
 double Usrp::timeNowS() { CallGuard g(*this); return usrp_->get_time_now(0).get_real_secs(); }
 void Usrp::setTimeNow(double s) { CallGuard g(*this); usrp_->set_time_now(uhd::time_spec_t(s), 0); }
 

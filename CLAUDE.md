@@ -37,6 +37,7 @@ __tests__/              contract tests through the real shell, plus golden frame
 examples/network-analyzer/   a second complete plugin, over TCP, with a fake device
 docs/                   the guide set; docs/README.md indexes it
 scripts/                build-engine, install-images, find-radios, doctor, smoke, manifest, rename, release
+                        read-frames, sweep-viewer, block-levels — debug tools for `engine --record` captures
 ```
 
 `README.md` is the user-facing description; `docs/engine-protocol.md` is the

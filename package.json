@@ -23,7 +23,11 @@
     "rename": "node scripts/rename.mjs",
     "bump": "node scripts/bump-version.mjs",
     "release": "node scripts/release.mjs",
-    "pack:release": "node scripts/pack-release.mjs"
+    "pack:release": "node scripts/pack-release.mjs",
+    "frames": "node scripts/read-frames.mjs",
+    "viewer": "node scripts/sweep-viewer.mjs",
+    "phantoms": "node scripts/find-phantoms.mjs",
+    "blocks": "node scripts/block-levels.mjs"
   },
   "dependencies": {
     "@soundbase/plugin-contract": "^0.9.0",

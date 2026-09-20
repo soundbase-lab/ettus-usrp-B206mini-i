@@ -32,6 +32,9 @@ struct EngineOptions {
     double captureTimeoutS = 0.4;      // ctl waits this long beyond the expected capture end
     int openAttempts = 10;
     double openBackoffS = 1.0;
+    bool rxIqAuto = true;              // AD9361 RX quadrature (image) tracking calibration
+    bool rxDcAuto = true;              // AD9361 RX DC offset tracking calibration
+    bool plantCalPoints = true;        // pre-tune each segment centre so sweep hops skip recalibration
     bool disableWatchdogExit = false;  // tests
 };
 
@@ -54,6 +57,10 @@ struct CaptureRequest {
     double loHz = 0;
     bool firstInSweep = false, lastInSweep = false, lastSubOfLo = false;
     uint16_t flags = 0;
+    // Sticky bits for the whole sweep. `flags` is cleared of recal/gainChanged after each LO
+    // position so a partial still says which hop it happened at; the completed sweep needs the
+    // union, and carrying it on the request keeps it off the processing thread's race.
+    uint16_t sweepFlags = 0;
     float gainDb = 0, kDbm = 0;
     std::shared_ptr<const SweepPlan> plan;
 };

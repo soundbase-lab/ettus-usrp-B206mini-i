@@ -3,6 +3,8 @@
 //   engine --find [--args ARGS]                    list attached USRPs as JSON; never claims one
 //   engine --socket PATH                           serve the Node supervisor over a Unix socket
 //   engine --dump FILE.csv [--sweeps N|--seconds S] sweep from the CLI and write WWB CSV of the last sweep
+//   engine --record FILE.frames                   log every frame, length-prefixed exactly as the socket
+//                                                 carries them; combines with --socket or a CLI sweep
 //   engine --emit-fixtures DIR                     write golden protocol frames
 //   engine --eqcap OUT.json                        flatness table on a terminated input (milestone 3)
 //   engine --calwrite IN.json                      write UHD power-calibration tables (milestone 3)
@@ -32,8 +34,9 @@ std::atomic<bool> g_stop{false};
 void onSignal(int) { g_stop = true; }
 
 struct Args {
-    std::string socket, dump, fixtures, eqcap, calwrite, guardtest, lock = "run/engine.lock", deviceArgs = "type=b200", eqDir = "data/eq";
+    std::string socket, dump, record, fixtures, eqcap, calwrite, guardtest, lock = "run/engine.lock", deviceArgs = "type=b200", eqDir = "data/eq";
     bool probe = false, find = false, help = false, noTimed = false, replant = false;
+    bool iqAuto = true, dcAuto = true, plant = true;
     int cycles = 1, sweeps = 0; double seconds = 0, guardMs = 1.2;
     json plan = json::object();
 };
@@ -49,6 +52,7 @@ Args parse(int argc, char** argv) {
         else if (k == "--cycles") a.cycles = atoi(need(i).c_str());
         else if (k == "--socket") a.socket = need(i);
         else if (k == "--dump") a.dump = need(i);
+        else if (k == "--record") a.record = need(i);
         else if (k == "--emit-fixtures") a.fixtures = need(i);
         else if (k == "--eqcap") a.eqcap = need(i);
         else if (k == "--calwrite") a.calwrite = need(i);
@@ -60,6 +64,9 @@ Args parse(int argc, char** argv) {
         else if (k == "--seconds") a.seconds = atof(need(i).c_str());
         else if (k == "--guard-ms") a.guardMs = atof(need(i).c_str());
         else if (k == "--no-timed-ddc") a.noTimed = true;
+        else if (k == "--iq-auto") a.iqAuto = atoi(need(i).c_str()) != 0;
+        else if (k == "--dc-auto") a.dcAuto = atoi(need(i).c_str()) != 0;
+        else if (k == "--no-plant") a.plant = false;
         else if (k == "--profile") a.plan["profile"] = need(i);
         else if (k == "--start") a.plan["startHz"] = atof(need(i).c_str()) * 1e6;
         else if (k == "--stop") a.plan["stopHz"] = atof(need(i).c_str()) * 1e6;
@@ -71,6 +78,7 @@ Args parse(int argc, char** argv) {
         else if (k == "--detector") a.plan["detector"] = need(i);
         else if (k == "--antenna") a.plan["antenna"] = need(i);
         else if (k == "--interleave") a.plan["interleave"] = true;
+        else if (k == "--image-reject") a.plan["imageReject"] = true;
         else if (k == "--lo-offset") a.plan["loGridOffsetHz"] = atof(need(i).c_str()) * 1e3;
         else if (k == "--window") a.plan["window"] = need(i);
         else if (k == "--plan") a.plan.update(json::parse(need(i)));
@@ -170,16 +178,39 @@ std::string wwbCsv(const proto::Header& h, const float* db, const uint8_t* mask)
 
 int runEngine(Args& a) {
     EngineOptions o; o.deviceArgs = a.deviceArgs; o.eqDir = a.eqDir; o.guardMs = a.guardMs; o.timedDdc = !a.noTimed;
+    o.rxIqAuto = a.iqAuto; o.rxDcAuto = a.dcAuto; o.plantCalPoints = a.plant;
     if (a.plan.contains("profile")) o.profile = a.plan["profile"].get<std::string>();
     Engine eng(o);
     UdsClient sock;
-    std::ofstream dumpFile;
+    std::ofstream recFile;
+    std::mutex recMu; uint64_t recFrames = 0, recBytes = 0;
     std::mutex dumpMu; uint32_t dumped = 0; std::vector<float> lastAvg; proto::Header lastHdr; std::vector<uint8_t> lastMask;
     bool serve = !a.socket.empty();
     if (serve && !sock.connect(a.socket, 30, 1.0)) { fprintf(stderr, "cannot connect to %s\n", a.socket.c_str()); return 5; }
+    if (!a.record.empty()) {
+        recFile.open(a.record, std::ios::binary | std::ios::trunc);
+        if (!recFile) { fprintf(stderr, "cannot open %s for recording\n", a.record.c_str()); return 6; }
+        fprintf(stderr, "recording frames to %s\n", a.record.c_str());
+    }
+    auto closeRecording = [&] {
+        std::lock_guard<std::mutex> lk(recMu);
+        if (!recFile.is_open()) return;
+        recFile.close();
+        fprintf(stderr, "recorded %llu frames, %llu bytes to %s\n",
+                (unsigned long long)recFrames, (unsigned long long)recBytes, a.record.c_str());
+    };
     eng.setFrameSink([&](std::vector<uint8_t>&& f) {
         proto::Header h;
         if (!proto::parseHeader(f.data(), f.size(), h)) return;
+        // The log is the socket stream byte for byte: u32 length then the frame. Recording ahead of
+        // the serve branch means a capture taken while SoundBase drives the engine is the same file.
+        if (recFile.is_open()) {
+            std::lock_guard<std::mutex> lk(recMu);
+            uint32_t len = uint32_t(f.size());
+            recFile.write(reinterpret_cast<const char*>(&len), 4);
+            recFile.write(reinterpret_cast<const char*>(f.data()), std::streamsize(f.size()));
+            recFrames++; recBytes += 4 + f.size();
+        }
         if (serve) { if (!sock.sendFrame(f)) g_stop = true; return; }
         if (h.msgType == proto::StatusJson || h.msgType == proto::LogJson) {
             std::string js((const char*)f.data() + proto::HEADER_BYTES, f.size() - proto::HEADER_BYTES);
@@ -212,6 +243,7 @@ int runEngine(Args& a) {
         if (!a.plan.empty()) eng.command(json{{"cmd", "setPlan"}, {"plan", a.plan}});
         while (!g_stop && eng.running()) std::this_thread::sleep_for(std::chrono::milliseconds(50));
         eng.shutdown();
+        closeRecording();
         return 0;
     }
     eng.command(json{{"cmd", "setPlan"}, {"plan", a.plan}});
@@ -232,6 +264,7 @@ int runEngine(Args& a) {
             fprintf(stderr, "wrote %s (%u bins, sweep %u)\n", a.dump.c_str(), lastHdr.binCount, lastHdr.sweepId);
         } else fprintf(stderr, "no complete sweep to dump\n");
     }
+    closeRecording();
     printf("%s\n", status.dump(2).c_str());
     return 0;
 }

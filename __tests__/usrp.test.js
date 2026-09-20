@@ -118,9 +118,12 @@ test('open() reports what this radio can do', async () => {
     'dwell',
     'gainDb',
     'gainMode',
+    'imageReject',
     'profile',
     'refLevelDbm',
   ]);
+  assert.equal(controls.imageReject.type, 'checkbox');
+  assert.equal(controls.imageReject.default, true);
   assert.ok(controls.gainDb.max <= 76);
   // the reference level control offers exactly the range the capabilities do
   assert.equal(controls.refLevelDbm.min, caps.minRefLevelDbm);
@@ -193,6 +196,19 @@ test('a configuration outside the radio is clamped, not rejected', async () => {
   const gain = await configure({ controls: { gainMode: 'manual', gainDb: 500 } });
   assert.equal(gain.status, 200);
   assert.ok(gain.body.controls.gainDb <= 76, `gain came back ${gain.body.controls.gainDb}`);
+});
+
+test('image rejection is on by default, and the host can turn it off', async () => {
+  // The engine itself defaults it off; the plugin's policy has to reach it.
+  const first = await configure({ startHz: 470_000_000, stopHz: 608_000_000 });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.controls.imageReject, true, 'plugin default did not reach the engine');
+  const off = await configure({ controls: { imageReject: false } });
+  assert.equal(off.body.controls.imageReject, false);
+  // and a later patch that says nothing about it leaves it where the host put it
+  const later = await configure({ startHz: 500_000_000, stopHz: 540_000_000 });
+  assert.equal(later.body.controls.imageReject, false);
+  await configure({ controls: { imageReject: true } });
 });
 
 test('a patch carrying one control leaves the others in force', async () => {

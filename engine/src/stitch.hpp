@@ -44,6 +44,13 @@ public:
     uint32_t filledBins() const { return filled_; }
     // Resolves overlaps, applies the image heuristic, masks spurs, fills holes from the previous sweep.
     void finalize();
+    // Combines this sweep with the one before it, which was measured at the other LO grid: where the
+    // two disagree by more than the image threshold the quieter wins, and otherwise they are averaged.
+    // `referenceDb` is the gain the sweep was taken at; sweeps taken at different gains are not
+    // comparable, so a change in it skips one combination rather than producing a wrong level.
+    // Call after finalize(). The sweep's own values, not the combined ones, are what the next sweep
+    // is compared against, so consecutive outputs never feed back into one another.
+    void rejectImagesAgainstPrevious(double referenceDb);
     // dB output (dBFS); NaN where no data at all. upTo = number of leading cells to convert.
     void toDb(float* avgDb, float* peakDb, float* minDb, float* sampleDb, uint32_t upTo) const;
     const uint8_t* mask() const { return mask_.data(); }
@@ -56,9 +63,15 @@ public:
 private:
     double start_ = 0, step_ = 25e3, rbw_ = 25e3;
     uint32_t n_ = 0, filled_ = 0;
-    std::vector<float> v1_, v2_, pk_, mn_, sm_;   // per cell: first/second overlapping avg, peak, min, sample
+    // Per cell, up to two measurements of the same cell. The second comes either from the overlap
+    // between adjacent LO positions or, with imageReject, from the second LO grid. Peak and sample are
+    // kept per measurement so that rejecting one as an image rejects all of its detectors together.
+    std::vector<float> v1_, v2_, pk_, pk2_, mn_, sm_, sm2_;
     std::vector<uint8_t> cnt_, mask_;
     std::vector<float> lastAvg_, lastPk_;           // last valid values (hole fill across sweeps)
+    std::vector<float> prevAvg_, prevPk_, prevSm_;  // the previous sweep alone, at the other LO grid
+    std::vector<uint8_t> prevOk_;                   // that cell was measured, not hole- or spur-filled
+    bool havePrev_ = false; double prevRefDb_ = 0;
     std::vector<uint32_t> spurCells_;
     bool overflow_ = false; double clipFrac_ = 0, peakDbfs_ = -300; uint64_t clipN_ = 0, sampN_ = 0; uint32_t zeroRuns_ = 0;
 };

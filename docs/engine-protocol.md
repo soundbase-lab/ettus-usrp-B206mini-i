@@ -127,6 +127,36 @@ the radio's internal spur frequencies; a `warnings` entry says so) and
 thread could not start on schedule; each is shortened rather than allowed to
 run into the next retune, so a non-zero count is a note, not a fault.
 
+### `imageReject`
+
+A plan field. Normally one sweep is one LO grid. With `imageReject` the grid
+alternates every sweep and `SweepGrid::rejectImagesAgainstPrevious()` combines
+each sweep with the one before it, which was measured at the other placement:
+where the two disagree by more than 6 dB the quieter wins, and where they agree
+they are averaged. A receiver image moves when the LO moves and a real signal
+does not, so this removes images the front end leaks through. Measured on a
+B206mini over 470-608 MHz, a span that showed a mirrored carrier on 25% of
+sweeps showed none at all, at 17.0 sweeps/s against a 20.4/s baseline.
+
+The pair slides rather than being disjoint, so every sweep still emits; the
+only cost is the extra LO position the shifted grid carries, taken on alternate
+sweeps. Three things follow from that and are load-bearing: the next sweep is
+compared against this sweep's *own* values rather than the combined ones, so
+outputs never feed back into each other; a gain change skips one combination,
+because two sweeps at different gains are not referred to the same thing; and
+agreeing cells are averaged rather than taken from the current sweep, because
+using the current sweep alone would alternate the output between the two grids'
+frequency responses, which is what a moving noise floor looks like. Hole-filled
+and spur-filled cells are excluded — comparing against an invented value would
+reject honest signal.
+
+**It needs the flatness table.** Each LO placement has its own frequency
+response across the kept band, and without `data/eq/<profile>.eq.json` the two
+placements disagree by several dB at some offsets, which combining turns into a
+level ripple of about +-5 dB. Capture the table first with `engine --eqcap` on a
+terminated input. Single-LO sweeps have the same response error, but it is the
+same every sweep, so it is invisible until two placements are combined.
+
 `log` (msgType 4) is `{ "type": "log", "level": "info|warn|error", "msg": "…" }`.
 Warnings and errors reach the plugin's log; info does not.
 
@@ -135,6 +165,7 @@ Warnings and errors reach the plugin's log; info does not.
 ```json
 { "cmd": "setPlan", "plan": { "startHz": 470e6, "stopHz": 608e6, "rbwHz": 25000, "vbwHz": 2500,
     "dwell": "fast|coordination|hq", "gainMode": "auto|manual", "gainDb": 50, "refLevelDbm": -50,
+    "imageReject": false,
     "profile": "auto|usb2|usb2-simple|usb2-turbo|usb3-16|usb3-28|usb3-32|usb3-56",
     "detector": "rms|peak|sample|min", "antenna": "RX2|TX/RX", "mode": "continuous|single" } }
 { "cmd": "start" }      // sweep continuously with the current plan
@@ -158,6 +189,16 @@ reporting.
 | `engine --socket PATH --lock PATH --args ARGS --profile auto` | the normal one: serve the plugin |
 | `engine --find [--args ARGS]` | list attached radios as JSON, without claiming one — it reads USB descriptors only. It cannot see a radio an engine already has open: a claimed B200 does not answer enumeration, which is why `adapter.js` keeps its own list of claimed radios |
 | `engine --emit-fixtures DIR` | write the golden frames in `__tests__/fixtures/` |
+
+`engine --record FILE` writes every frame the engine produces to a file, `u32`
+length then the frame — the socket stream byte for byte, so `FrameReassembler`
+in `driver/frames.js` reads a capture with no format of its own to learn. It
+works alongside `--socket`, which means a capture taken while SoundBase is
+driving the radio is the same file as one taken from the CLI.
+`scripts/read-frames.mjs` prints one row per sweep from it, and
+`scripts/block-levels.mjs` reports how the level of each 6 MHz channel moved over
+the capture and whether that movement has the receiver's fingerprint (floor,
+common mode, LO-grid parity) or the air's (channels moving independently).
 
 `engine --probe`, `--dump`, `--eqcap`, `--calwrite` and `--guardtest` exist for
 bring-up and calibration work by hand; see `engine/README.md`.

@@ -45,6 +45,9 @@ public:
     TuneOutcome tuneManual(double rfHz, double dspHz);
     // Timed DDC-only retune at device time atS (LO unchanged, exact rf double).
     TuneOutcome tuneManualAt(double atS, double rfHz, double dspHz);
+    // The AD9361's RX tracking calibrations, through UHD. Quadrature tracking is what decides
+    // image rejection; leaving it to UHD's default is what let a mirrored carrier through.
+    void setAutoCorrections(bool iqBalance, bool dcOffset);
     double timeNowS();
     void setTimeNow(double s);
     double tempC();
