@@ -30,7 +30,7 @@ test('a radio being opened stays in the device list while it is unenumerable', a
   // enumeration sees nothing, and nothing is claimed yet
   assert.deepEqual(await discoverDevices({}), []);
 
-  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, { mock: true });
+  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, {});
   let opening;
   try {
     opening = adapter.open();
@@ -63,7 +63,7 @@ test('a radio being opened stays in the device list while it is unenumerable', a
 // holds a reference to it any more.
 test('closing while the engine is still starting leaves nothing running', async () => {
   const { createSpectrumAnalyzerAdapter } = await import('../adapter.js');
-  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, { mock: true });
+  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, {});
 
   const opening = adapter.open();
   await adapter.close();

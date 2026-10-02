@@ -16,9 +16,9 @@
     }
   ],
   "contract": {
-    "core": "1.3",
+    "core": "1.4",
     "modules": {
-      "SpectrumAnalyzer": "1.0"
+      "SpectrumAnalyzer": "1.2"
     }
   },
   "runtime": {
@@ -30,7 +30,7 @@
   ],
   "template": {
     "name": "soundbase-plugin-template",
-    "version": "1.0.1"
+    "version": "1.0.11"
   },
   "products": [
     {
@@ -61,7 +61,7 @@
       "id": "engineNote",
       "type": "static-text",
       "label": "Sweep engine",
-      "help": "This plugin drives the radio through a small C++ engine that it builds on this machine the first time it runs, because the engine links against your installed UHD. That needs cmake and UHD 4.9 or newer (macOS: `brew install cmake ninja uhd`). Progress shows as the plugin's status; devices appear when the build finishes. To skip the build, point \"Engine binary\" at a build you already have, or tick \"Simulate a radio\"."
+      "help": "Drives the radio through a small C++ engine, built on this machine the first time the plugin runs because it links against your installed UHD.\n\nNeeds cmake and UHD 4.9 or newer. On macOS:\n\n```sh\nbrew install cmake ninja uhd\n```\n\nProgress shows as the plugin's status, and devices appear when the build finishes. To skip the build, set **Engine binary** to a build you already have."
     },
     {
       "id": "enginePath",
@@ -76,13 +76,6 @@
       "label": "Level offset",
       "default": 0,
       "help": "Added to every reported amplitude, in dB. Use it to correct for feeder loss, an inline preamplifier or an attenuator."
-    },
-    {
-      "id": "mock",
-      "type": "checkbox",
-      "label": "Simulate a radio (no hardware)",
-      "default": false,
-      "help": "Serves a synthetic UHF scene instead of opening a USRP. For trying the plugin out and for support diagnosis."
     }
   ],
   "deviceConfigFields": [

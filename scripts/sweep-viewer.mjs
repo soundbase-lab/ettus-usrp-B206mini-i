@@ -29,7 +29,7 @@ import {
   liveTrace,
   maskOf,
 } from '../driver/frames.js';
-import { deviceArgsFor, mockRequested, resolveEngineBinary, BUILD_HINT } from '../driver/locate.js';
+import { deviceArgsFor, resolveEngineBinary, BUILD_HINT } from '../driver/locate.js';
 
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(name);
@@ -178,7 +178,7 @@ async function loadCapture(file) {
 let engine = null;
 
 async function startLive() {
-  const pluginConfig = { mock: mockRequested() };
+  const pluginConfig = {};
   const binPath = resolveEngineBinary(pluginConfig);
   if (!binPath) {
     process.stderr.write(`no sweep engine binary: ${BUILD_HINT}\n`);

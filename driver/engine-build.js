@@ -23,8 +23,8 @@
 // and the next config push tries the build again.
 //
 // A user who would rather not have a plugin compile C++ can set "Engine
-// binary" to a build of their own or tick "Simulate a radio"; both short-circuit
-// this before anything is spawned.
+// binary" to a build of their own, which short-circuits this before anything
+// is spawned.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -32,7 +32,7 @@ import { PLUGIN_STATUS } from '@soundbase/plugin-contract';
 import {
   BUILD_HINT,
   BUILD_SCRIPT,
-  IMAGES_COMMAND,
+  IMAGES_SHELL,
   PLUGIN_ROOT,
   engineStatus,
   mockRequested,
@@ -58,8 +58,6 @@ const RETRY_SECONDS = Math.round(RETRY_MS / 1000);
 const KEEP_OPEN =
   `Leave SoundBase open: the plugin checks again every ${RETRY_SECONDS} seconds and carries on by itself ` +
   'as soon as that is done — no setting to change, no restart.';
-
-const SIMULATE = 'To try it without hardware, tick "Simulate a radio".';
 
 /**
  * The status for "waiting on the user's machine, not on a setting" — core 1.3,
@@ -128,9 +126,19 @@ export function checkImages({ probe = capture, exists = existsSync } = {}) {
 }
 
 /**
- * The install steps for this platform, in the order to run them. Each is a
- * complete command; the images step names the folder because the plugin lives
- * somewhere the user has never looked.
+ * A command the user pastes into a terminal, as a fenced block. SoundBase
+ * renders status messages as Markdown and gives a fenced block a Copy button;
+ * `indent` nests the block inside a numbered step.
+ */
+const fenced = (command, indent = '') =>
+  [`${indent}\`\`\`sh`, `${indent}${command}`, `${indent}\`\`\``].join('\n');
+
+const STEP_INDENT = '   ';
+
+/**
+ * The install steps for this platform, in the order to run them, as a
+ * numbered Markdown list with one command to a step. The images step carries
+ * its folder because the plugin lives somewhere the user has never looked.
  */
 export function prerequisitesMessage(tools, platform = process.platform) {
   const missing = [];
@@ -143,23 +151,35 @@ export function prerequisitesMessage(tools, platform = process.platform) {
     );
   }
   const what = missing.join(' and ');
-  const imagesStep = `${IMAGES_COMMAND} (fetches the USRP firmware and FPGA images UHD needs; without them no radio is ever found)`;
-  let steps;
+
+  let toolsStep;
+  let after = '';
   if (platform === 'darwin') {
     // Homebrew ships neither the images nor uhd_images_downloader on PATH.
-    steps = `1) brew install cmake ninja uhd   2) ${imagesStep}`;
+    toolsStep = [
+      '1. Install the build tools:',
+      fenced('brew install cmake ninja uhd', STEP_INDENT),
+    ];
   } else if (platform === 'linux') {
-    steps =
-      `1) sudo apt install cmake ninja-build libuhd-dev uhd-host   2) ${imagesStep}. ` +
-      `Distribution packages may be older than ${UHD_MIN.join('.')}; then UHD has to come from Ettus’ PPA or from source`;
+    toolsStep = [
+      '1. Install the build tools:',
+      fenced('sudo apt install cmake ninja-build libuhd-dev uhd-host', STEP_INDENT),
+    ];
+    after = `Distribution packages may be older than ${UHD_MIN.join('.')}; then UHD has to come from Ettus’ PPA or from source.`;
   } else {
-    steps = `1) install cmake and UHD   2) ${imagesStep}`;
+    toolsStep = ['1. Install cmake and UHD.'];
   }
-  return (
-    `${INCOMPLETE} the sweep engine cannot be built yet, because this machine needs ${what}. ` +
-    `In a terminal, run these in order: ${steps}. ` +
-    `${KEEP_OPEN} The engine builds itself once the tools are there, with progress shown here. ${SIMULATE}`
-  );
+
+  return [
+    `${INCOMPLETE} the sweep engine cannot be built yet, because this machine needs ${what}. In a terminal, run these in order:`,
+    '',
+    ...toolsStep,
+    '2. Fetch the USRP firmware and FPGA images UHD needs. Without them no radio is ever found.',
+    fenced(IMAGES_SHELL, STEP_INDENT),
+    '',
+    ...(after ? [after, ''] : []),
+    `${KEEP_OPEN} The engine builds itself once the tools are there, with progress shown here.`,
+  ].join('\n');
 }
 
 /** The engine is fine; UHD has nothing to program the radio with. */
@@ -167,11 +187,13 @@ export function imagesMessage(state) {
   const where = state.dir
     ? `UHD’s images folder (${state.dir}) is missing ${state.missing.join(', ')}`
     : 'UHD has no images folder';
-  return (
-    `${INCOMPLETE} the sweep engine is built, but ${where}, so it cannot program the B206mini-i and no radio will be found. ` +
-    `In a terminal run ${IMAGES_COMMAND} (fetches the USRP firmware and FPGA images; ` +
-    `run it again after upgrading UHD). ${KEEP_OPEN} ${SIMULATE}`
-  );
+  return [
+    `${INCOMPLETE} the sweep engine is built, but ${where}, so it cannot program the B206mini-i and no radio will be found. In a terminal, run:`,
+    '',
+    fenced(IMAGES_SHELL),
+    '',
+    `That fetches the USRP firmware and FPGA images; run it again after upgrading UHD. ${KEEP_OPEN}`,
+  ].join('\n');
 }
 
 export function buildFailedMessage(result) {
@@ -319,7 +341,7 @@ export function reconcileEngine(pluginConfig = {}, report, opts = {}) {
   if (now.ok) {
     // The engine is only useful if UHD can program the radio; the fake engine
     // programs nothing.
-    if (!mock(pluginConfig)) {
+    if (!mock()) {
       const found = images();
       if (!found.ok) {
         say(NEEDS_SETUP, imagesMessage(found));

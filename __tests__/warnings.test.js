@@ -124,7 +124,7 @@ const DEVICE = { id: 'usb:FAKE001', config: {} };
 async function openWithWarnings(env) {
   const { createSpectrumAnalyzerAdapter } = await import('../adapter.js');
   for (const [k, v] of Object.entries(env)) process.env[k] = v;
-  const adapter = createSpectrumAnalyzerAdapter(DEVICE, { mock: true });
+  const adapter = createSpectrumAnalyzerAdapter(DEVICE, {});
   const reports = [];
   adapter.onWarnings = (list) => reports.push(list);
   await adapter.open();

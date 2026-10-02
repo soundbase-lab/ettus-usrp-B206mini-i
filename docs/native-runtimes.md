@@ -183,6 +183,9 @@ Two Windows-specific facts worth knowing up front:
 - Path separators reach your device ids and therefore your URLs. Percent-encode
   and round-trip them in a test.
 
-If you have not run it on Windows, say so in your README. A user hitting a
-platform you never tried should discover that from your documentation, not from
-a crash.
+If you have not run it on Windows, leave `win32-x64` out of `platforms` in
+`soundbase-plugin.json`. That is the declaration SoundBase enforces: the Lab
+shows the platforms you list as icons on your listing, and Desktop refuses to
+install or run the plugin on a machine you did not list. A user on a platform
+you never tried should be told by the plugin manager, not by a crash. Add the
+target back when you have executed the runtime there.

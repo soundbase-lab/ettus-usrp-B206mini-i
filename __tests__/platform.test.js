@@ -133,5 +133,12 @@ test('the plugin reports a missing engine as bad-config, and clears it', async (
   assert.match(missing.message, /scripts\/build-engine\.mjs/);
   assert.match(missing.message, /cd "/, 'says which folder to run it in');
   assert.match(missing.message, /\/nonexistent\/engine/, 'names the path it looked at');
-  assert.equal(engineStatus({ mock: true }).ok, true, 'mock mode needs no build');
+  const before = process.env.SB_USRP_MOCK;
+  process.env.SB_USRP_MOCK = '1';
+  try {
+    assert.equal(engineStatus({}).ok, true, 'mock mode needs no build');
+  } finally {
+    if (before === undefined) delete process.env.SB_USRP_MOCK;
+    else process.env.SB_USRP_MOCK = before;
+  }
 });

@@ -100,7 +100,12 @@ test('missing tools name the install steps for this platform, in order', () => {
   clearTimeout(watch.timer);
   assert.equal(seen[0].status, 'needs-setup', 'not a setting the user got wrong');
   assert.match(seen[0].message, /^Installation incomplete:/, 'the badge says "Bad config"; the text says what it really is');
-  assert.match(seen[0].message, /1\) brew install cmake ninja uhd\s+2\) `cd "/, 'numbered steps, in order');
+  assert.match(
+    seen[0].message,
+    /\n1\. Install the build tools:\n {3}```sh\n {3}brew install cmake ninja uhd\n {3}```\n2\. Fetch [^\n]+\n {3}```sh\n {3}cd "[^\n]+install-images\.mjs\n {3}```\n/,
+    'numbered steps, in order, one copyable command to a step'
+  );
+  assert.doesNotMatch(seen[0].message, /1\) /, 'a Markdown list, not steps run into a sentence');
   assert.match(seen[0].message, /installed: 4\.6/, 'says what is there, not just what is wanted');
   assert.match(seen[0].message, /checks again every 15 seconds/, 'says the plugin will look again by itself');
   assert.doesNotMatch(seen[0].message, /change any plugin setting/, 'nothing for the user to poke');
@@ -220,7 +225,11 @@ test('a built engine with no FPGA images is needs-setup until they are installed
   assert.equal(decided, 'images');
   assert.equal(seen[0].status, 'needs-setup');
   assert.match(seen[0].message, /^Installation incomplete:/);
-  assert.match(seen[0].message, /install-images\.mjs/, 'the one command that fixes it');
+  assert.match(
+    seen[0].message,
+    /\n```sh\ncd "[^\n]+install-images\.mjs\n```\n/,
+    'the one command that fixes it, on its own to copy'
+  );
   assert.match(seen[0].message, /no radio will be found/, 'says what the consequence is');
 
   images = { ok: false, dir: '/images', missing: ['usrp_b205mini_fpga.bin'] };
@@ -234,8 +243,9 @@ test('a built engine with no FPGA images is needs-setup until they are installed
 
   // the fake engine programs nothing: mock mode never asks
   const { seen: mocked, report: r2 } = reports();
-  reconcileEngine({ mock: true }, r2, {
+  reconcileEngine({}, r2, {
     status: () => ({ ok: true, message: '' }),
+    mock: () => true,
     images: () => {
       throw new Error('must not be asked');
     },

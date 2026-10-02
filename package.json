@@ -30,14 +30,14 @@
     "blocks": "node scripts/block-levels.mjs"
   },
   "dependencies": {
-    "@soundbase/plugin-contract": "^0.9.0",
-    "@soundbase/plugin-shell": "^0.9.0"
+    "@soundbase/plugin-contract": "^0.10.1",
+    "@soundbase/plugin-shell": "^0.10.1"
   },
   "soundbase": {
     "template": {
       "name": "soundbase-plugin-template",
-      "version": "1.0.1"
+      "version": "1.0.11"
     },
-    "generatedFrom": "6d24972f42478e654dd1c4cce2d503851e324d6e"
+    "generatedFrom": "f13b18ab7933dfbbcb26449c278a129d448d2ba8"
   }
 }

@@ -17,7 +17,7 @@ export const PLUGIN_ROOT = fileURLToPath(new URL('..', import.meta.url));
 export const BUILD_SCRIPT = path.join(PLUGIN_ROOT, 'scripts', 'build-engine.mjs');
 
 /**
- * The stand-in engine, used when the plugin is configured for mock mode. It is
+ * The stand-in engine, used when SB_USRP_MOCK is set (tests, development). It is
  * a Node script rather than a binary; the driver runs it with this Node.
  */
 export const FAKE_ENGINE = path.join(PLUGIN_ROOT, 'driver', 'fake-engine.js');
@@ -33,14 +33,17 @@ export const BUILT_ENGINE = path.join(PLUGIN_ROOT, 'engine', 'build', 'engine');
 export const BUILD_HINT =
   `in a terminal run \`cd "${PLUGIN_ROOT.replace(/\/$/, '')}" && node scripts/build-engine.mjs\` ` +
   '(needs cmake, ninja and UHD 4.9 or newer), or set the plugin’s "Engine binary" ' +
-  'setting to a build you already have, or tick "Simulate a radio" to try it without one';
+  'setting to a build you already have';
 
 /**
  * What to do about missing FPGA images, with the folder to do it in. Same
  * reasoning as BUILD_HINT: the plugin folder is somewhere the user has never
  * looked. See driver/uhd-images.js for why the images are a separate step.
  */
-export const IMAGES_COMMAND = `\`cd "${PLUGIN_ROOT.replace(/\/$/, '')}" && node scripts/install-images.mjs\``;
+export const IMAGES_SHELL = `cd "${PLUGIN_ROOT.replace(/\/$/, '')}" && node scripts/install-images.mjs`;
+
+/** The same command as inline code, for a sentence. */
+export const IMAGES_COMMAND = `\`${IMAGES_SHELL}\``;
 
 export const IMAGES_HINT =
   `in a terminal run ${IMAGES_COMMAND} ` +
@@ -54,13 +57,13 @@ const isFile = (p) => {
   }
 };
 
-/** True when the plugin has been asked to simulate a radio. */
-export function mockRequested(pluginConfig = {}) {
-  return (
-    pluginConfig.mock === true ||
-    process.env.SB_USRP_MOCK === '1' ||
-    process.env.SB_USRP_MOCK === 'true'
-  );
+/**
+ * True when the environment asks for the fake engine. A development and test
+ * switch only: there is no setting for it, so a user never sees a synthetic
+ * trace where a measured one belongs.
+ */
+export function mockRequested() {
+  return process.env.SB_USRP_MOCK === '1' || process.env.SB_USRP_MOCK === 'true';
 }
 
 /**
@@ -71,7 +74,7 @@ export function mockRequested(pluginConfig = {}) {
  * `cmake --preset pi-release` build work without reconfiguring the plugin.
  */
 export function resolveEngineBinary(pluginConfig = {}) {
-  if (mockRequested(pluginConfig)) return FAKE_ENGINE;
+  if (mockRequested()) return FAKE_ENGINE;
 
   const configured = String(pluginConfig.enginePath ?? '').trim();
   if (configured) return configured;
