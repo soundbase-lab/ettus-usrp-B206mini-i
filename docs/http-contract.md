@@ -298,15 +298,7 @@ curl -s -X POST localhost:$PORT/devices/$DEV/configuration \
   -d '{"startHz":470000000,"stopHz":608000000,"pointCount":11}'
 curl -s -X POST localhost:$PORT/devices/$DEV/sweep/start
 curl -s localhost:$PORT/devices/$DEV/trace
-curl -N localhost:$PORT/events        # watch lifecycle events and device-state
-
-IEM=synthetic-iem%3A1
-curl -s -X POST localhost:$PORT/devices \
-  -H 'content-type: application/json' \
-  -d '{"id":"synthetic-iem:1","product":"plugin:template/synthetic-iem"}'
-curl -s -X POST localhost:$PORT/devices/$IEM/commands \
-  -H 'content-type: application/json' \
-  -d '{"propertyId":"txPower","channelIndex":1,"value":100}'
+curl -N localhost:$PORT/events        # watch lifecycle events
 ```
 
 Add `-H "Authorization: Bearer $SB_PLUGIN_TOKEN"` if you started the plugin
