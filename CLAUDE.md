@@ -221,10 +221,10 @@ JavaScript codec, so a C++ protocol change fails there.
 
 **Trying a change inside SoundBase**
 
-> There is no drop-in folder. Cut a release (*Actions → Release*, `bump:
-> patch`), point the Lab's develop entry at the new tag, and press *Update* in
-> *Settings → Plugins*. The README's "Running it in SoundBase" section is the
-> reference; `npm run smoke` covers everything short of the app itself.
+> Quit SoundBase Desktop and start it with `SB_PLUGIN_DIRS` set to the folder
+> that *contains* this checkout; the working tree is then run in place. The
+> README's "Running it in SoundBase" section is the reference; `npm run smoke`
+> covers everything short of the app itself.
 
 **Diagnosing "my radio does not appear in SoundBase"**
 
@@ -239,9 +239,10 @@ JavaScript codec, so a C++ protocol change fails there.
 **Renaming the plugin**
 
 > Run `npm run rename <id>` rather than editing by hand — the id appears in the
-> manifest, in every product's `deviceTypeId`, in `adapter.js`, and in
-> `package.json`, and a partial rename produces a device the host ignores with
-> only a warning line in the log.
+> manifest, in every product's `deviceTypeId`, in `adapter.js`, in
+> `package.json`, and in the `x.<id>.` namespace of every extension state key.
+> A partial rename produces a device the host ignores with only a warning line
+> in the log, or a manifest the host refuses outright.
 
 ## What not to ask for
 

@@ -5,52 +5,45 @@ step: getting your plugin into the app and seeing its trace on the plot.
 
 ## Before you start
 
-- **SoundBase Desktop.** Plugins are spawned by the desktop app. There is no
-  browser path — the browser cannot reach your USB cable.
-- **The `plugin-system` feature flag,** enabled for your account. Third-party
-  drop-in plugins are gated behind it while the plugin system is in
-  development. Ask your SoundBase contact to switch it on; without it your
-  plugin is scanned, listed as disabled, and never spawned.
+You need **SoundBase Desktop**. Plugins are spawned by the desktop app; there
+is no browser path — the browser cannot reach your USB cable.
 
-## Installing it — through the Lab
+## Pointing SoundBase at your working tree
 
-SoundBase installs plugins from the **Lab**, and that is the development flow
-too: what you run inside SoundBase is a release you tagged, installed the way
-a user's copy is installed. There is no folder to copy and no path to point
-the app at.
+Start the app with the `SB_PLUGIN_DIRS` environment variable set to the folder
+that *contains* your plugin folder. It is a path-separated list, so several
+parents can be given at once.
 
-1. **Cut a release.** *Actions → Release → Run workflow* with `bump` set to
-   `patch`, `minor` or `major`; CI bumps, tags, checks and publishes a GitHub
-   Release with the zip attached. [publishing.md](publishing.md) has every
-   route and every rule the zip has to satisfy.
-2. **Add it on the Lab's develop page.** Repository URL and the tag. The entry
-   is private to your account — never listed, never moderated, invisible to
-   anyone else — and the release is resolved exactly as a public one would be.
-3. **Install it in SoundBase Desktop.** *Settings → Plugins* shows the entry
-   with a *development* badge. Install downloads the zip, verifies it, boots
-   it once as a probe and only then moves it into place.
-4. **Iterate.** Tag the next version, re-point the develop entry at it, press
-   *Update* in the Plugins tab.
+```bash
+# macOS — the plugin is ~/CODE/my-plugin
+SB_PLUGIN_DIRS="$HOME/CODE" open -a "SoundBase Desktop"
+```
 
-**The dependencies travel in the zip.** SoundBase runs `main.js` as-is and
-installs nothing, so a zip packed without `node_modules/` fails at its first
-import, which looks exactly like a plugin that never handshakes. `npm run
-pack:release` and the Release workflow include them; the boot probe catches a
-zip that does not.
+Point it at the *parent* of your plugin folder, not at the plugin folder
+itself: each direct child with a `soundbase-plugin.json` is one plugin.
+
+Quit SoundBase Desktop before running this. `open -a` hands the variable to a
+newly started app, not to one that is already running.
+
+**The dependencies have to be there.** SoundBase runs `main.js` as-is; it does
+not install anything. A folder without `node_modules/@soundbase/plugin-shell`
+fails at its first import, which looks exactly like a plugin that never
+handshakes. In a working tree that just means having run `npm install`.
+
+`SB_PLUGIN_DIRS` is for development. Users get your plugin from the Lab — see
+[publishing.md](publishing.md).
 
 ## The plugin manager
 
-Once it is installed and the flag is on, your plugin appears in
-**Settings → Plugins**, where a user can:
+Your plugin appears in **Settings → Plugins**, where a user can:
 
 - see its name, version and status, and any manifest error that stopped it;
 - enable or disable it (disabled plugins are not spawned);
 - fill in the `pluginConfigFields` your manifest declares;
-- read its log;
-- update it, after you have re-pointed the develop entry at a new tag.
+- read its log.
 
 A plugin whose manifest fails validation is listed with its error rather than
-silently skipped — one bad drop-in never stops the others.
+silently skipped — one bad plugin never stops the others.
 
 ## Seeing a device
 
@@ -73,16 +66,9 @@ and yours may be one of them.
 ## Reading the logs
 
 Every line your plugin writes to stdout after the handshake is captured by the
-host, per plugin:
-
-| | |
-|---|---|
-| macOS | `~/Library/Application Support/SoundBase Desktop/pluginLogs/<id>.log` |
-| Windows | `%APPDATA%\SoundBase Desktop\pluginLogs\<id>.log` |
-| Linux | `~/.config/SoundBase Desktop/pluginLogs/<id>.log` |
-
-The same lines are shown in the plugin manager. The shell prefixes its own with
-a timestamp and level; `this.log('info', …)` from your plugin class joins them.
+host and shown, per plugin, in the plugin manager. The shell prefixes its own
+with a timestamp and level; `this.log('info', …)` from your plugin class joins
+them.
 
 The first two lines after a successful start tell you which build is running:
 

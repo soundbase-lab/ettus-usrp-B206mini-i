@@ -29,8 +29,8 @@ live scan, exclusion threshold).
 |---|---|
 | [engine-protocol.md](engine-protocol.md) | The wire between this plugin and its C++ sweep engine: frames, commands, and what the adapter reads. |
 | [testing.md](testing.md) | The three checks, faking hardware you don't have, what's worth asserting. |
-| [running-in-soundbase.md](running-in-soundbase.md) | Installing through the Lab's develop page, the feature flag, the plugin manager, the logs. |
-| [native-runtimes.md](native-runtimes.md) | Native libraries, bundled interpreters, code signing. **Read this before designing anything that needs one.** |
+| [running-in-soundbase.md](running-in-soundbase.md) | Running a working tree in place with `SB_PLUGIN_DIRS`, the plugin manager, where your device shows up, the logs. |
+| [native-runtimes.md](native-runtimes.md) | Native libraries and bundled interpreters. **Read this before designing anything that needs one.** |
 | [publishing.md](publishing.md) | Releases, the Lab, licensing. |
 | [troubleshooting.md](troubleshooting.md) | Symptom → cause. Start with `npm run doctor`. |
 
