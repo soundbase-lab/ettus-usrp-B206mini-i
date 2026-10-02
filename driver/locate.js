@@ -40,7 +40,10 @@ export const BUILD_HINT =
  * reasoning as BUILD_HINT: the plugin folder is somewhere the user has never
  * looked. See driver/uhd-images.js for why the images are a separate step.
  */
-export const IMAGES_COMMAND = `\`cd "${PLUGIN_ROOT.replace(/\/$/, '')}" && node scripts/install-images.mjs\``;
+export const IMAGES_SHELL = `cd "${PLUGIN_ROOT.replace(/\/$/, '')}" && node scripts/install-images.mjs`;
+
+/** The same command as inline code, for a sentence. */
+export const IMAGES_COMMAND = `\`${IMAGES_SHELL}\``;
 
 export const IMAGES_HINT =
   `in a terminal run ${IMAGES_COMMAND} ` +
