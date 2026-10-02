@@ -70,30 +70,20 @@ SoundBase, so a synthetic trace never stands in for a measured one.
 
 ## Running it in SoundBase
 
-SoundBase installs plugins from the **Lab**, and that is the development flow
-too: every build you run inside SoundBase is a release you tagged, installed
-the way a user's copy is installed.
+Users install the plugin from the **Lab**, which installs from this
+repository's GitHub Releases — [docs/publishing.md](docs/publishing.md) has
+the release workflow and the Lab's rules.
 
-1. **Cut a release.** *Actions → Release → Run workflow* with `bump` set to
-   `patch`, `minor` or `major`. CI moves the version in `soundbase-plugin.json`,
-   `package.json` and `package-lock.json`, commits, tags `v<version>`, runs
-   `doctor`, `manifest`, the tests and the pack, and only then pushes and
-   publishes a GitHub Release with the zip attached. A red run leaves `main`
-   untouched. (Pushing a `v<version>` tag by hand does the same, provided the
-   tag matches the version in both manifests.)
-2. **Add it on the Lab's develop page.** Repository URL and the tag. The Lab
-   resolves the release the way a public submission is resolved — one zip,
-   a `LICENSE`, a valid manifest — and keeps the entry private to your account:
-   it is never listed, moderated or visible to anyone else.
-3. **Install it in SoundBase Desktop.** *Settings → Plugins* shows the entry
-   with a *development* badge. Install it; the plugin is downloaded, verified,
-   booted once as a probe and moved into place, exactly as for a user.
-4. **Iterate.** Tag the next version, re-point the develop entry at the new
-   tag, press *Update* in the Plugins tab.
+To run a working copy, quit SoundBase Desktop and start it with
+`SB_PLUGIN_DIRS` set to the folder that *contains* this one:
 
-When it is ready for everyone, submit the tag from *my submissions* instead
-and wait for approval — [docs/publishing.md](docs/publishing.md) has the
-Lab's rules. Seeing the device on the plot and reading the plugin's log are in
+```sh
+# macOS — this checkout is ~/CODE/ettus-usrp-B206mini-i
+SB_PLUGIN_DIRS="$HOME/CODE" open -a "SoundBase Desktop"
+```
+
+Run `npm install` first: SoundBase runs `main.js` as-is and installs nothing.
+Seeing the device on the plot and reading the plugin's log are in
 [docs/running-in-soundbase.md](docs/running-in-soundbase.md#seeing-a-device).
 
 ### The first run builds the engine
