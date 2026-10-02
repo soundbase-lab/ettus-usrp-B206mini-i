@@ -329,6 +329,21 @@ if (!has('adapter.js')) {
         'export createSpectrumAnalyzerAdapter() for a spectrum source, ' +
           'createMonitoringAdapter() for a receiver or IEM transmitter'
       );
+    // main.js wires only what is exported, so a spectrum product with no
+    // spectrum factory is a device the shell cannot open
+    const spectrumProducts = (manifest?.products ?? []).filter(
+      (p) => p.capabilities?.spectrumAnalyzer
+    );
+    if (
+      spectrumProducts.length &&
+      typeof adapter.createSpectrumAnalyzerAdapter !== 'function'
+    )
+      bad(
+        `the manifest declares a spectrum analyzer (${spectrumProducts
+          .map((p) => p.deviceTypeId)
+          .join(', ')}) but adapter.js does not export createSpectrumAnalyzerAdapter()`,
+        'main.js wires that factory by name; without it the device cannot be opened'
+      );
 
     // the rename trap, checked without booting anything
     const declared = (manifest?.products ?? []).map((p) => p.deviceTypeId);
