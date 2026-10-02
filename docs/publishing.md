@@ -29,7 +29,7 @@ included, because nothing installs them on the user's machine.
 
 ```
 my-plugin/                     one top-level folder is expected
-  soundbase-plugin.json        valid, and with `license` set
+  soundbase-plugin.json        valid, with `license` and `platforms` set
   LICENSE                      required, at the root
   main.js
   adapter.js
@@ -42,12 +42,14 @@ What the Lab checks when you submit a tag:
 - a **published** (non-draft) GitHub Release on that tag;
 - **exactly one** `.zip` asset, at most **250 MB**;
 - `soundbase-plugin.json` and a `LICENSE` at the zip root (one top-level folder
-  is fine), the manifest valid, and `manifest.license` set;
+  is fine), the manifest valid, `manifest.license` set, and
+  `manifest.platforms` naming at least one Desktop build target;
 - the tag's commit differs from the previously released one, and the manifest
   version has never been released on this listing.
 
 SoundBase Desktop then re-checks the download: size and archive limits, path
-traversal, manifest validity, an entrypoint that resolves inside the folder,
+traversal, manifest validity, that `platforms` includes the machine it is on,
+an entrypoint that resolves inside the folder,
 and a **boot probe** — it spawns the plugin and waits for the handshake before
 installing it. Nothing outside a staging folder is touched until that probe
 passes, so a bad release cannot damage a working install.
@@ -78,7 +80,8 @@ going, the push is refused and nothing is published — run it again.
 
 ### From a tag, on CI
 
-Bump `version` in `soundbase-plugin.json` and `package.json`, commit, then:
+`npm run bump 0.5.0` moves the version in every file that carries it. Commit
+that, then:
 
 ```bash
 git tag v0.5.0 && git push origin v0.5.0
@@ -102,8 +105,8 @@ npm ci && npm prune --omit=dev
 npm run pack:release            # dist/<id>-<version>.zip, boot-checked
 ```
 
-Unlike `release.mjs` this needs no SoundBase checkout — your dependencies come
-from your own `node_modules`, because both SDK packages are on public npm.
+It needs no SoundBase checkout: your dependencies come from your own
+`node_modules`, because both SDK packages are on public npm.
 
 ### From your machine
 
@@ -148,8 +151,8 @@ approval.
 | `contract` | **compatibility.** A matching major version is compatible. |
 | `template` | **lineage.** Leave it alone; see [manifest-reference.md](manifest-reference.md#template). |
 
-Bump `version` in both `soundbase-plugin.json` and `package.json` together —
-`release.mjs` does this for you and refuses to continue if it cannot.
+Bump `version` in `soundbase-plugin.json`, `package.json` and
+`package-lock.json` together — `npm run bump` does this for you.
 
 ## Licensing
 
@@ -166,10 +169,12 @@ distributing and operating plugins for SoundBase, **including commercially**;
 it does not permit using this code with anything that is not SoundBase. Each
 version converts to the Change License named in `LICENSE` on its Change Date.
 
-> The `LICENSE` in this repository still carries `<<<PLACEHOLDER:` markers
-> while the SDK licence is finalised. `npm run doctor` warns about it. Replace
-> the file with your own plugin's licence, or wait for the finalised text
-> before publishing.
+> The `LICENSE` in this repository is the finalised SDK licence: Business
+> Source License 1.1, Licensor Show Code, Corp., converting to the Apache
+> License 2.0 on September 5, 2030. It covers the template code you started
+> from. If your plugin ships under a licence of its own, replace the file and
+> set `license` in the manifest to match; `npm run doctor` checks that a
+> `LICENSE` is present and that the manifest names one.
 
 The Lab refuses a release with no `LICENSE` file or no `license` in the
 manifest. That is not bureaucracy: a repository with no licence is

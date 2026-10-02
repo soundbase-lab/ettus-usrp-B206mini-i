@@ -5,8 +5,8 @@
 // same frames and answers the same commands — so the adapter, the driver, the
 // supervision path and the shell are all exercised for real, with only the
 // radio swapped out. That is what lets the contract tests run on a laptop with
-// nothing attached, and what `mock` in the plugin configuration turns on when
-// you want to poke at the plugin by hand:
+// nothing attached, and what this environment variable turns on when you want
+// to poke at the plugin by hand:
 //
 //   SB_USRP_MOCK=1 npm start
 //

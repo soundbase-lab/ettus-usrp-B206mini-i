@@ -234,8 +234,9 @@ test('a built engine with no FPGA images is needs-setup until they are installed
 
   // the fake engine programs nothing: mock mode never asks
   const { seen: mocked, report: r2 } = reports();
-  reconcileEngine({ mock: true }, r2, {
+  reconcileEngine({}, r2, {
     status: () => ({ ok: true, message: '' }),
+    mock: () => true,
     images: () => {
       throw new Error('must not be asked');
     },

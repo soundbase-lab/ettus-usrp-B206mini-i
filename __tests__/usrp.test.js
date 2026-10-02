@@ -140,7 +140,7 @@ test('open() reports what this radio can do', async () => {
 // picks the right one by the serial the plugin reported.
 test('open() identifies the radio it actually opened', async () => {
   const { createSpectrumAnalyzerAdapter } = await import('../adapter.js');
-  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, { mock: true });
+  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, {});
   try {
     const { identity } = await adapter.open();
     assert.equal(identity.manufacturer, 'Ettus Research');
@@ -262,7 +262,7 @@ test('the reference level sets auto gain, and is clamped to what gain can do', a
 
 test('the control wins over the field when one patch carries both', async () => {
   const { createSpectrumAnalyzerAdapter } = await import('../adapter.js');
-  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, { mock: true });
+  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, {});
   try {
     await adapter.open();
     const both = await adapter.applyConfig({

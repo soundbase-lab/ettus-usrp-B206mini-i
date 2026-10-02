@@ -23,8 +23,8 @@
 // and the next config push tries the build again.
 //
 // A user who would rather not have a plugin compile C++ can set "Engine
-// binary" to a build of their own or tick "Simulate a radio"; both short-circuit
-// this before anything is spawned.
+// binary" to a build of their own, which short-circuits this before anything
+// is spawned.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -58,8 +58,6 @@ const RETRY_SECONDS = Math.round(RETRY_MS / 1000);
 const KEEP_OPEN =
   `Leave SoundBase open: the plugin checks again every ${RETRY_SECONDS} seconds and carries on by itself ` +
   'as soon as that is done — no setting to change, no restart.';
-
-const SIMULATE = 'To try it without hardware, tick "Simulate a radio".';
 
 /**
  * The status for "waiting on the user's machine, not on a setting" — core 1.3,
@@ -158,7 +156,7 @@ export function prerequisitesMessage(tools, platform = process.platform) {
   return (
     `${INCOMPLETE} the sweep engine cannot be built yet, because this machine needs ${what}. ` +
     `In a terminal, run these in order: ${steps}. ` +
-    `${KEEP_OPEN} The engine builds itself once the tools are there, with progress shown here. ${SIMULATE}`
+    `${KEEP_OPEN} The engine builds itself once the tools are there, with progress shown here.`
   );
 }
 
@@ -170,7 +168,7 @@ export function imagesMessage(state) {
   return (
     `${INCOMPLETE} the sweep engine is built, but ${where}, so it cannot program the B206mini-i and no radio will be found. ` +
     `In a terminal run ${IMAGES_COMMAND} (fetches the USRP firmware and FPGA images; ` +
-    `run it again after upgrading UHD). ${KEEP_OPEN} ${SIMULATE}`
+    `run it again after upgrading UHD). ${KEEP_OPEN}`
   );
 }
 
@@ -319,7 +317,7 @@ export function reconcileEngine(pluginConfig = {}, report, opts = {}) {
   if (now.ok) {
     // The engine is only useful if UHD can program the radio; the fake engine
     // programs nothing.
-    if (!mock(pluginConfig)) {
+    if (!mock()) {
       const found = images();
       if (!found.ok) {
         say(NEEDS_SETUP, imagesMessage(found));

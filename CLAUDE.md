@@ -101,7 +101,9 @@ plugin↔engine wire.
 
 ## The adapter contract
 
-`adapter.js` exports exactly two things:
+`adapter.js` exports `discoverDevices` and one factory per module its
+products use — which one a device gets is decided by its product's manifest
+`capabilities` (`spectrumAnalyzer` → the first; anything else → the second):
 
 ```js
 export async function discoverDevices(pluginConfig) → Device[]
@@ -114,6 +116,13 @@ export function createSpectrumAnalyzerAdapter(device, pluginConfig) → {
   onFatal                → assigned by the shell; call it when the transport dies
   onWarnings             → assigned by a core-1.1 shell; call it with the complete
                            current set of { id, severity, message } — see driver/warnings.js
+}
+export function createMonitoringAdapter(device, pluginConfig) → {
+  open()                 → { channelCount?, layout?, properties?, identity? }; report full state first
+  close()
+  setProperty(command)   → apply { propertyId, channelIndex?, entityId?, value }; report the result via onState
+  onState                → assigned by the shell; onState(key, value) for every state change
+  onWarnings, onFatal    → assigned by the shell
 }
 ```
 
@@ -133,6 +142,9 @@ node_modules/@soundbase/plugin-contract/spec/
   soundbase-plugin.schema.json
   core.openapi.yaml
   spectrum-analyzer.openapi.yaml
+  channel-monitoring.openapi.yaml
+  property-control.openapi.yaml
+  state-keys.json
 ```
 
 **Read those files before answering a question about the contract.** They ship

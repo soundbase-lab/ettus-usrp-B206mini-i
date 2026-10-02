@@ -65,9 +65,8 @@ SB_USRP_MOCK=1 npm run smoke
 SB_USRP_MOCK=1 npm start          # then curl it; the handshake line prints the port
 ```
 
-Mock mode is also a checkbox in the plugin's settings inside SoundBase, which
-is the honest way to demonstrate a coordination workflow with no radio in the
-room. It never opens a USRP and never claims to have measured anything.
+Mock mode is a development switch only: there is no setting for it inside
+SoundBase, so a synthetic trace never stands in for a measured one.
 
 ## Running it in SoundBase
 
@@ -114,8 +113,7 @@ its own status in the plugin manager:
 | *bad-config: the sweep engine failed to build: …* | the compiler's last lines; the message also gives the manual command for the full output. Change any plugin setting to try the build again, or build by hand — the plugin notices the binary by itself |
 
 Nothing compiles if you'd rather it didn't: point **Engine binary** at a build
-you already have (`<checkout>/engine/build/engine`), or tick **Simulate a
-radio**. The manual equivalent, in the installed plugin's folder, is
+you already have (`<checkout>/engine/build/engine`). The manual equivalent, in the installed plugin's folder, is
 `node scripts/build-engine.mjs` (`npm run build:engine` from a checkout).
 
 #### Why there is no prebuilt engine
@@ -189,7 +187,6 @@ go unreported.
   of your own.
 - **Level offset** — added to every amplitude, in dB. This is where feeder
   loss, an inline preamplifier or an attenuator gets corrected for.
-- **Simulate a radio** — mock mode, as above.
 
 **Device settings** address one radio:
 

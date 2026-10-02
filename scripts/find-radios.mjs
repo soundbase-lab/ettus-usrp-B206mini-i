@@ -8,9 +8,9 @@
 // UHD or cabling problem rather than a plugin problem.
 
 import { discoverDevices } from '../adapter.js';
-import { BUILD_HINT, IMAGES_HINT, mockRequested, resolveEngineBinary } from '../driver/locate.js';
+import { BUILD_HINT, IMAGES_HINT, resolveEngineBinary } from '../driver/locate.js';
 
-const pluginConfig = { mock: mockRequested() };
+const pluginConfig = {};
 const binPath = resolveEngineBinary(pluginConfig);
 if (!binPath) {
   process.stderr.write(`no sweep engine binary: ${BUILD_HINT}\n`);
