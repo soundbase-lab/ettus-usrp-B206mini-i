@@ -37,7 +37,12 @@ import {
   engineStatus,
   mockRequested,
 } from './locate.js';
+import { extendToolPath } from './tool-path.js';
 import { imagesState, parseImagesDir } from './uhd-images.js';
+
+// Before anything is probed or built: SoundBase started from the Dock hands
+// the plugin a PATH with no Homebrew on it. See driver/tool-path.js.
+extendToolPath();
 
 /** The B206mini-i is not supported before UHD 4.9. */
 export const UHD_MIN = [4, 9];

@@ -20,6 +20,7 @@ import {
   prerequisitesMessage,
   reconcileEngine,
 } from '../driver/engine-build.js';
+import { TOOL_DIRS, withToolDirs } from '../driver/tool-path.js';
 
 const node = process.execPath;
 const script = (code) => ['-e', code];
@@ -308,4 +309,31 @@ test('checkTools reads real version strings and applies the UHD floor', () => {
   const old = checkTools({ probe: (cmd) => (cmd === 'uhd_config_info' ? 'UHD 4.6.0.0' : null) });
   assert.equal(old.uhd.ok, false);
   assert.equal(old.cmake, false);
+});
+
+// SoundBase started from the Dock gives the plugin launchd's PATH, which has
+// no Homebrew on it: every tool reads as "not installed" and the plugin asks
+// for setup that is already done. See driver/tool-path.js.
+
+test('a Dock-launched PATH gains the directories package managers install into', () => {
+  const extended = withToolDirs('/usr/bin:/bin:/usr/sbin:/sbin', 'darwin');
+  assert.equal(extended, '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin');
+});
+
+test('a PATH that already finds the tools keeps its order and gains no duplicates', () => {
+  const shell = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin';
+  assert.equal(withToolDirs(shell, 'darwin'), `${shell}:/opt/local/bin`);
+  assert.equal(withToolDirs(withToolDirs(shell, 'darwin'), 'darwin'), `${shell}:/opt/local/bin`);
+});
+
+test('an empty or missing PATH still yields somewhere to look', () => {
+  assert.equal(withToolDirs('', 'linux'), '/usr/local/bin');
+  assert.equal(withToolDirs(undefined, 'darwin'), TOOL_DIRS.darwin.join(':'));
+});
+
+test('the plugin process itself carries the extended PATH, so the build inherits it', () => {
+  const dirs = (process.env.PATH ?? '').split(':');
+  for (const dir of TOOL_DIRS[process.platform] ?? []) {
+    assert.ok(dirs.includes(dir), `${dir} must be on PATH once engine-build.js is loaded`);
+  }
 });
