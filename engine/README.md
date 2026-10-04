@@ -89,6 +89,9 @@ threads and sweep loop · `src/protocol.*` frame codec · `src/socket.*` UDS cli
   profiles whose LO sits inside the kept band, so that each grid's LO and block edges fall in the flat part of the
   other's blocks (see `imageReject` in `docs/engine-protocol.md`). The earlier layout re-centred the shifted grid and
   moved it by a whole step, so odd sweeps reused the even LO frequencies plus one wasted hop.
+- The spur mask (`spurMask`, on by default) is earning its place on this unit: with it off, 25 kHz cells on a
+  40 dB-gain antenna sweep read +14 dB at 600 MHz, +7 dB at 520 MHz and +4 dB at 480 MHz against their neighbours
+  (365C103, usb3-56, 2026-10-03). 504 and 560 MHz showed nothing above what was already there.
 - Every LO is kept ≥ 2.5 MHz from the internal spurs (n × 40 MHz reference, n × MCR) where the grid's centring
   slack allows it. An LO parked 0.85 MHz below 520 MHz showed an intermittent 0.7 MHz burst between the LO and
   the spur in 1 sweep of 13 (usb3-56, 470–616 MHz); the planner reports the shift as `loGridAutoShiftHz`.

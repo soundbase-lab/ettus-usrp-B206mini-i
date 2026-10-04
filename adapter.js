@@ -30,6 +30,8 @@ import {
 } from './driver/platform.js';
 import {
   ANTENNAS,
+  AVERAGING_RATIOS,
+  DEFAULT_AVERAGING,
   DEFAULT_REF_LEVEL_DBM,
   DETECTORS,
   DEVICE_MAX_HZ,
@@ -43,15 +45,26 @@ import {
   USB2_PROFILES,
   USB3_PROFILES,
   VBW_PRESETS_HZ,
+  WINDOWS,
+  averagingOf,
   clamp,
   isNum,
   nativeGeometry,
+  nearestAveraging,
   reducerFor,
   traceToPoints,
 } from './driver/plan.js';
 
 /** Declared in soundbase-plugin.json; `npm run rename` keeps the two in step. */
 export const PRODUCT = 'plugin:ettus-usrp-b206mini-i/b206mini-i';
+
+/**
+ * A sweep predicted to take longer than this is reported to the host as
+ * `resolved.sweepTimeMs`, so it waits for it instead of calling the device
+ * stalled. Below it the host is left to learn the rate from the sweeps, as it
+ * always has: a 70 ms prediction is not a deadline worth handing anyone.
+ */
+const SWEEP_TIME_REPORT_MS = 2000;
 
 /** Enumeration is polled once a second; the USB bus does not change that fast. */
 const DISCOVERY_INTERVAL_MS = 2500;
@@ -269,8 +282,14 @@ class UsrpAnalyzerAdapter {
       gainMode: this.plan?.gainMode ?? 'auto',
       gainDb: this.plan?.gainDb ?? 50,
       dwell: this.plan?.dwell ?? 'coordination',
+      averaging: averagingId(this.plan),
       detector: this.plan?.detector ?? 'rms',
+      window: this.plan?.window ?? 'bh4',
       antenna: this.plan?.antenna ?? 'RX2',
+      spurMask: this.plan?.spurMask ?? true,
+      // Not an engine setting: every frame already carries the averaged trace
+      // and the detector's own, and this decides whether both are reported.
+      overlay: false,
       profile: 'auto',
       // On by default, and deliberately not read back from the engine's plan:
       // the engine defaults it off, and this is the plugin's policy. The B2xx
@@ -341,7 +360,25 @@ class UsrpAnalyzerAdapter {
             { id: 'fast', label: 'Fast — fastest sweep, noisiest trace' },
             { id: 'coordination', label: 'Coordination — the usual choice' },
             { id: 'hq', label: 'High quality — slowest, steadiest trace' },
+            { id: 'long', label: 'Long — 100 ms a step, to catch bursts with the peak detector' },
           ],
+          help: 'Also the least averaging a step gets, whatever Averaging says.',
+        },
+        // The engine takes averaging as a video bandwidth, RBW ÷ VBW spectra
+        // per measurement. It is a control because that is the form SoundBase
+        // renders for a plugin device, and a ratio because a ratio still means
+        // the same thing after the RBW changes. The ids are strings: a form's
+        // dropdown hands back a string whatever it was given.
+        {
+          id: 'averaging',
+          type: 'dropdown',
+          label: 'Averaging',
+          default: this.controls.averaging,
+          choices: AVERAGING_RATIOS.map((n) => ({
+            id: String(n),
+            label: n === 1 ? 'None' : `${n}×${n === DEFAULT_AVERAGING ? ' (default)' : ''}`,
+          })),
+          help: 'Spectra averaged per step: more is smoother and slower. Below the dwell\'s own minimum it changes nothing.',
         },
         {
           id: 'detector',
@@ -353,6 +390,23 @@ class UsrpAnalyzerAdapter {
             { id: 'peak', label: 'Positive peak' },
             { id: 'sample', label: 'Sample' },
             { id: 'min', label: 'Negative peak' },
+          ],
+        },
+        {
+          id: 'overlay',
+          type: 'checkbox',
+          label: 'Peak and RMS together',
+          default: false,
+          help: 'Adds a second curve: peak over the RMS trace, or RMS under any other detector.',
+        },
+        {
+          id: 'window',
+          type: 'dropdown',
+          label: 'FFT window',
+          default: 'bh4',
+          choices: [
+            { id: 'bh4', label: 'Blackman-Harris — cleanest beside strong signals' },
+            { id: 'hann', label: 'Hann — slightly sharper carriers' },
           ],
         },
         {
@@ -368,6 +422,13 @@ class UsrpAnalyzerAdapter {
           label: 'Image rejection',
           default: true,
           help: 'Removes the receiver\'s own images. Costs about a sixth of the sweep rate.',
+        },
+        {
+          id: 'spurMask',
+          type: 'checkbox',
+          label: 'Mask internal spurs',
+          default: true,
+          help: 'Hides the radio\'s own spurs at multiples of 40 MHz and of its sample clock. Turn off to see a signal sitting exactly on one.',
         },
         {
           id: 'profile',
@@ -453,6 +514,20 @@ class UsrpAnalyzerAdapter {
       plan.refLevelDbm = clampRefLevel(cfg.refLevelDbm);
     }
     Object.assign(plan, this.#controlPlan(cfg.controls));
+    // Averaging is a ratio here and a bandwidth in the engine. The control
+    // wins over the contract's own `vbwHz`, as the reference level control
+    // does; and with neither in the patch, a new RBW carries the ratio in
+    // force with it, so "30×" stays 30× instead of becoming whatever the old
+    // bandwidth happens to be against the new RBW.
+    const averaging =
+      averagingOf(cfg.controls?.averaging) ??
+      (plan.rbwHz !== undefined && plan.vbwHz === undefined
+        ? Number(this.controls.averaging)
+        : undefined);
+    if (averaging !== undefined) {
+      const rbwHz = plan.rbwHz ?? previous.rbwHz;
+      if (isNum(rbwHz)) plan.vbwHz = rbwHz / averaging;
+    }
     // The engine starts with image rejection off. Send the plugin's policy the
     // first time the engine's plan disagrees with it, and never again unless
     // the host changes the control — so a patch that only moves the span does
@@ -493,17 +568,29 @@ class UsrpAnalyzerAdapter {
         gainMode: this.plan.gainMode,
         gainDb: this.plan.gainDb,
         dwell: this.plan.dwell,
+        averaging: averagingId(this.plan),
         detector: this.plan.detector,
+        window: this.plan.window,
         antenna: this.plan.antenna,
         profile: this.controls.profile,
         imageReject: this.plan.imageReject,
+        spurMask: this.plan.spurMask,
+        overlay: this.controls.overlay,
       },
     };
     // A request that named an RBW gets the realised one back; a request that
     // left it alone keeps showing "auto" in the form, with what auto meant
-    // reported beside it.
+    // reported beside it. The video bandwidth is reported the same way: the
+    // shell echoes a requested `vbwHz` as requested, so this is the only place
+    // the bandwidth the averaging control really produced can be read.
+    const resolved = {};
     if (isNum(cfg.rbwHz)) effective.rbwHz = this.plan.rbwHz;
-    else effective.resolved = { rbwHz: this.plan.rbwHz };
+    else resolved.rbwHz = this.plan.rbwHz;
+    if (!isNum(cfg.vbwHz) && isNum(this.plan.vbwHz)) resolved.vbwHz = this.plan.vbwHz;
+    if (this.plan.predictedSweepMs > SWEEP_TIME_REPORT_MS) {
+      resolved.sweepTimeMs = Math.round(this.plan.predictedSweepMs);
+    }
+    if (Object.keys(resolved).length) effective.resolved = resolved;
 
     this.controls = { ...this.controls, ...effective.controls };
     return effective;
@@ -528,9 +615,14 @@ class UsrpAnalyzerAdapter {
     if (dwell) plan.dwell = dwell;
     const detector = pick(controls.detector, DETECTORS);
     if (detector) plan.detector = detector;
+    const window = pick(controls.window, WINDOWS);
+    if (window) plan.window = window;
     const antenna = pick(controls.antenna, ANTENNAS);
     if (antenna) plan.antenna = antenna;
     if (typeof controls.imageReject === 'boolean') plan.imageReject = controls.imageReject;
+    if (typeof controls.spurMask === 'boolean') plan.spurMask = controls.spurMask;
+    // held here, like the profile: the engine has no such field
+    if (typeof controls.overlay === 'boolean') this.controls.overlay = controls.overlay;
     const profile = pick(controls.profile, [
       'auto',
       ...USB2_PROFILES,
@@ -588,14 +680,36 @@ class UsrpAnalyzerAdapter {
     if (!sameGrid(frame, this.geometry)) return;
     const trace = liveTrace(frame, this.detector);
     if (!trace) return;
+    const mask = maskOf(frame);
+    const points = traceToPoints(frame, trace, mask, this.geometry, this.offsetDb);
+    if (!points) return;
+    const overlay = this.controls?.overlay ? this.#overlay(frame, mask) : null;
+    if (overlay) this.onTrace(points, [overlay]);
+    else this.onTrace(points);
+  }
+
+  /**
+   * The frame's other curve, as a named series on the same points.
+   *
+   * The engine sends the averaged trace with every sweep and the selected
+   * detector's beside it (the peak one when the detector is RMS), so the
+   * second curve costs nothing to measure: peak over an RMS trace, RMS under
+   * anything else. It goes to the shell as `onTrace`'s second argument, which
+   * a shell that predates series ignores.
+   */
+  #overlay(frame, mask) {
+    const other = this.detector === 'rms' ? 'peak' : 'rms';
+    const kind = LIVE_KIND_FOR_DETECTOR[other];
+    const trace = frame.traces.find((t) => t.kind === kind && t.values);
+    if (!trace) return null;
     const points = traceToPoints(
       frame,
       trace,
-      maskOf(frame),
-      this.geometry,
+      mask,
+      { ...this.geometry, reducer: reducerFor(other) },
       this.offsetDb
     );
-    if (points) this.onTrace(points);
+    return points && { name: other === 'peak' ? 'Peak' : 'RMS', amplitudesDbm: points };
   }
 
   /**
@@ -621,6 +735,16 @@ function sameGrid(frame, geometry) {
     Math.abs(frame.startHz - grid.startHz) < 1 &&
     Math.abs(frame.stepHz - grid.stepHz) < 1e-6
   );
+}
+
+/**
+ * The averaging choice an engine plan amounts to, as the control's id. Read
+ * from the plan rather than remembered from the request, so it reports the
+ * engine's own clamp — a video bandwidth cannot exceed the RBW — and a
+ * bandwidth set through the contract's `vbwHz` shows up on the control too.
+ */
+function averagingId(plan) {
+  return String(nearestAveraging(plan?.rbwHz / plan?.vbwHz));
 }
 
 /**

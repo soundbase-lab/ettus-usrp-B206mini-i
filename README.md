@@ -137,16 +137,21 @@ Building where UHD lives is the honest option, and it takes about a minute.
 ### Device controls
 
 Beyond the settings SoundBase knows about (range, RBW, VBW), the plugin
-declares seven of its own, which SoundBase renders generically:
+declares twelve of its own, which SoundBase renders generically:
 
 | Control | |
 |---|---|
 | **Reference level** | the strongest input the trace should carry, −60 to 0 dBm. Also accepted as the contract's own `refLevelDbm` field; the control wins when both arrive, and a value outside the range is clamped and echoed |
 | **Gain** | `auto` derives the RX gain from the reference level (`g = −refLevel`, capped at 60 dB) and creeps up from 30 dB, backing off if the front end clips; `manual` uses the value below |
 | **RX gain** | 0–76 dB, used in manual mode |
-| **Dwell** | `fast`, `coordination`, `hq` — how long each sub-window is integrated for, and so how steady the trace is |
+| **Dwell** | `fast`, `coordination`, `hq`, `long` — the least time each sub-window is captured for (0, 10, 25, 100 ms), and so how steady the trace is. `long` is for the peak detector: a burst is only seen if a capture overlaps it |
+| **Averaging** | power spectra averaged per sub-window, none to 300× — the engine's video bandwidth, as the ratio RBW ÷ VBW, so it means the same thing at every RBW. The dwell sets a minimum (about 31 on `coordination`, 78 on `hq`), so the low settings only change the trace on `fast`. Also accepted as the contract's `vbwHz`; the control wins when both arrive |
 | **Detector** | which detector the reported trace comes from |
+| **Peak and RMS together** | off by default. On, each sweep carries a second curve as a named series: the peak trace over an RMS one, or RMS under any other detector. The engine measures both every sweep, so it costs nothing |
+| **FFT window** | Blackman-Harris (the default, cleanest beside strong signals) or Hann (slightly sharper carriers) |
 | **Antenna port** | `RX2` or `TX/RX` |
+| **Image rejection** | on by default: every cell is measured at two LO placements and the quieter kept, which removes the receiver's own images for about a sixth of the sweep rate |
+| **Mask internal spurs** | on by default: the cells at multiples of 40 MHz and of the sample clock are filled from their neighbours, because the radio puts spurs of its own there. Turn it off to see what those cells really measure — including a signal sitting exactly on one |
 | **Acquisition profile** | sample rate and sub-window layout; `auto` picks from the USB link speed |
 
 ### Warnings

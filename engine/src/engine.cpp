@@ -198,7 +198,8 @@ void Engine::processCapture(const CaptureRequest& r, const int16_t* iq, size_t n
     if (dspPlan_ != r.plan || !analyzer_) {
         if (!analyzer_ || analyzer_->fftN() != pl.fftN || analyzer_->fsHz() != pl.prof.rateHz || dspPlan_ == nullptr || dspPlan_->req.window != pl.req.window)
             analyzer_ = std::make_unique<SubWindowAnalyzer>(pl.fftN, pl.prof.rateHz, pl.req.window);
-        grid_.configure(pl.req.startHz, pl.stepHz, pl.binCount, pl.req.rbwHz, SpurTable::forMcr(pl.prof.mcrHz, pl.req.startHz - 1e6, pl.req.stopHz + 1e6));
+        grid_.configure(pl.req.startHz, pl.stepHz, pl.binCount, pl.req.rbwHz,
+                        pl.req.spurMask ? SpurTable::forMcr(pl.prof.mcrHz, pl.req.startHz - 1e6, pl.req.stopHz + 1e6) : SpurTable{});
         dspPlan_ = r.plan;
         dbA_.assign(pl.binCount, 0); dbP_ = dbA_; dbM_ = dbA_; dbS_ = dbA_;
     }

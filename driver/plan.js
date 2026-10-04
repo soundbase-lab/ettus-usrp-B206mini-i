@@ -58,7 +58,20 @@ export const DEFAULT_REF_LEVEL_DBM = -50;
  */
 export const MAX_POINTS = 32768;
 
-export const DWELLS = ['fast', 'coordination', 'hq'];
+export const DWELLS = ['fast', 'coordination', 'hq', 'long'];
+export const WINDOWS = ['bh4', 'hann'];
+
+/**
+ * The averaging control's choices: power spectra averaged per measurement,
+ * which the engine takes as RBW ÷ VBW. It is offered as a ratio because that
+ * is what stays meaningful when the RBW changes; the engine holds a video
+ * bandwidth in hertz, so the adapter turns one into the other in both
+ * directions. The engine accepts up to 1000, which at a narrow RBW is more
+ * than a second per LO position — 300 is where the choices stop.
+ */
+export const AVERAGING_RATIOS = [1, 3, 10, 30, 100, 300];
+/** The engine's own default: VBW = RBW ÷ 10. */
+export const DEFAULT_AVERAGING = 10;
 export const DETECTORS = ['rms', 'peak', 'sample', 'min'];
 export const ANTENNAS = ['RX2', 'TX/RX'];
 export const USB2_PROFILES = ['usb2', 'usb2-simple', 'usb2-turbo'];
@@ -66,6 +79,27 @@ export const USB3_PROFILES = ['usb3-16', 'usb3-28', 'usb3-32', 'usb3-56'];
 
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 export const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+/** The averaging choice closest to a ratio, compared as ratios rather than differences. */
+export function nearestAveraging(ratio) {
+  if (!isNum(ratio)) return DEFAULT_AVERAGING;
+  if (ratio <= AVERAGING_RATIOS[0]) return AVERAGING_RATIOS[0];
+  let best = AVERAGING_RATIOS[0];
+  for (const choice of AVERAGING_RATIOS) {
+    if (Math.abs(Math.log(ratio / choice)) < Math.abs(Math.log(ratio / best))) best = choice;
+  }
+  return best;
+}
+
+/**
+ * An averaging control value as one of the choices, or undefined when it is
+ * not a number at all (which means "leave it alone", like any unknown
+ * dropdown value). Forms send dropdown ids as strings, so both are taken.
+ */
+export function averagingOf(value) {
+  const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+  return isNum(n) ? nearestAveraging(n) : undefined;
+}
 
 /**
  * The engine's output grid for a span and RBW: start floored, stop ceiled, step
