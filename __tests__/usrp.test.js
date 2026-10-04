@@ -394,8 +394,9 @@ test('dwell, averaging, window and spur masking each leave the others in force',
 
 // The engine sends the averaged trace and the detector's own in every frame.
 // With the overlay on, the one that is not the primary trace goes to the shell
-// as a named series — `onTrace`'s second argument, which a shell that predates
-// series ignores, so this is checked at the adapter rather than over HTTP.
+// as a named series — `onTrace`'s second argument. Checked at the adapter
+// here, where the choice of curve is made; the test after the sweeping ones
+// follows it over HTTP.
 test('the overlay reports the frame’s other curve as a named series', async () => {
   const { createSpectrumAnalyzerAdapter } = await import('../adapter.js');
   const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, {});
@@ -523,6 +524,38 @@ test('max-hold catches a transient nobody polled for', async (t) => {
   const at = indexOf(TRANSIENT_HZ);
   const held = Math.max(...trace.body.amplitudesDbm.slice(at - 1, at + 2));
   assert.ok(held > -70, `the transient never accumulated (peak ${held} dBm)`);
+});
+
+// The same overlay, as the host sees it: a `series` on the trace response,
+// on the primary's axis. Needs a shell that carries series (0.12.1 or newer).
+test('the overlay reaches the host as a series on the trace', async (t) => {
+  await configure({
+    rbwHz: 25_000,
+    traceMode: 'clear-write',
+    controls: { overlay: true, detector: 'rms' },
+  });
+  await request('POST', `${DEVICE_PATH}/sweep/start`);
+  t.after(async () => {
+    await request('POST', `${DEVICE_PATH}/sweep/stop`);
+    await configure({ controls: { overlay: false } });
+  });
+  // whatever the shell was holding, then the sweep after it
+  const fresh = async () => {
+    const held = await request('GET', `${DEVICE_PATH}/trace`);
+    return (await request('GET', `${DEVICE_PATH}/trace?sinceSweepId=${held.body.sweepId}`)).body;
+  };
+
+  const both = await fresh();
+  assert.equal(both.amplitudesDbm.length, POINT_COUNT);
+  assert.equal(both.series?.length, 1, 'the shell did not carry the series');
+  assert.equal(both.series[0].name, 'Peak');
+  assert.equal(both.series[0].amplitudesDbm.length, both.pointCount);
+  const at = indexOf(CARRIER_HZ);
+  assert.ok(both.series[0].amplitudesDbm[at] > both.amplitudesDbm[at], 'peak sits above RMS');
+
+  // off again, the trace is a single curve and says so by omitting the key
+  await configure({ controls: { overlay: false } });
+  assert.equal('series' in (await fresh()), false);
 });
 
 // 576 MHz is 18 × 32 MHz in the fake's scene, with nothing else near it. The

@@ -147,7 +147,7 @@ declares twelve of its own, which SoundBase renders generically:
 | **Dwell** | `fast`, `coordination`, `hq`, `long` — the least time each sub-window is captured for (0, 10, 25, 100 ms), and so how steady the trace is. `long` is for the peak detector: a burst is only seen if a capture overlaps it |
 | **Averaging** | power spectra averaged per sub-window, none to 300× — the engine's video bandwidth, as the ratio RBW ÷ VBW, so it means the same thing at every RBW. The dwell sets a minimum (about 31 on `coordination`, 78 on `hq`), so the low settings only change the trace on `fast`. Also accepted as the contract's `vbwHz`; the control wins when both arrive |
 | **Detector** | which detector the reported trace comes from |
-| **Peak and RMS together** | off by default. On, each sweep carries a second curve as a named series: the peak trace over an RMS one, or RMS under any other detector. The engine measures both every sweep, so it costs nothing. Needs a plugin shell that carries `series` (newer than 0.12.0); an older one draws the primary trace alone |
+| **Peak and RMS together** | off by default. On, each sweep carries a second curve as a named series: the peak trace over an RMS one, or RMS under any other detector. The engine measures both every sweep, so it costs nothing |
 | **FFT window** | Blackman-Harris (the default, cleanest beside strong signals) or Hann (slightly sharper carriers) |
 | **Antenna port** | `RX2` or `TX/RX` |
 | **Image rejection** | on by default: every cell is measured at two LO placements and the quieter kept, which removes the receiver's own images for about a sixth of the sweep rate |
