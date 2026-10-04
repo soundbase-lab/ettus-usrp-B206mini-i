@@ -35,7 +35,6 @@ import {
   DEVICE_MAX_HZ,
   DEVICE_MIN_HZ,
   DWELLS,
-  GAIN_HARD_CAP_DB,
   GAIN_MAX_DB,
   GAIN_MIN_DB,
   MAX_REF_LEVEL_DBM,
@@ -309,10 +308,7 @@ class UsrpAnalyzerAdapter {
           min: MIN_REF_LEVEL_DBM,
           max: MAX_REF_LEVEL_DBM,
           step: 1,
-          help:
-            'The strongest input the trace should carry. Auto gain is set to ' +
-            `−(reference level), so −50 dBm means 50 dB of gain, capped at ${GAIN_HARD_CAP_DB} dB. ` +
-            'Raise it when the overload warning appears; lower it to hear weaker signals.',
+          help: 'The strongest input expected. Raise it if the overload warning appears.',
         },
         {
           id: 'gainMode',
@@ -323,7 +319,7 @@ class UsrpAnalyzerAdapter {
             { id: 'auto', label: 'Auto (from reference level)' },
             { id: 'manual', label: 'Manual' },
           ],
-          help: 'Auto caps the gain at −(reference level) and backs off further if the front end clips.',
+          help: 'Auto sets the gain from the reference level.',
         },
         {
           id: 'gainDb',
@@ -334,7 +330,7 @@ class UsrpAnalyzerAdapter {
           min: GAIN_MIN_DB,
           max: maxGainDb,
           step: 1,
-          help: 'Used when gain is set to manual.',
+          help: 'Used when gain is manual.',
         },
         {
           id: 'dwell',
@@ -371,7 +367,7 @@ class UsrpAnalyzerAdapter {
           type: 'checkbox',
           label: 'Image rejection',
           default: true,
-          help: 'Measures every cell at two LO placements and keeps the quieter, which removes the receiver\'s own images. Costs about a sixth of the sweep rate.',
+          help: 'Removes the receiver\'s own images. Costs about a sixth of the sweep rate.',
         },
         {
           id: 'profile',
@@ -382,7 +378,7 @@ class UsrpAnalyzerAdapter {
             { id: 'auto', label: `Auto (USB ${info.usbVersion ?? '?'})` },
             ...profiles.map((id) => ({ id, label: id })),
           ],
-          help: 'Sample rate and sub-window layout. Auto picks from the USB link speed.',
+          help: 'Auto picks from the USB link speed.',
         },
       ],
     };
