@@ -35,10 +35,10 @@ int main() {
     CHECK(lp.sub.size() == 4);
     CHECK(std::fabs(lp.sub[0].dspHz - 10.2e6) < 1 && std::fabs(lp.sub[1].dspHz - 3.4e6) < 1 && std::fabs(lp.sub[2].dspHz + 3.4e6) < 1 && std::fabs(lp.sub[3].dspHz + 10.2e6) < 1);
     for (auto& sw : lp.sub) CHECK(!(lp.loHz > sw.keptLoHz + 1 && lp.loHz < sw.keptHiHz - 1)); // LO never strictly inside a kept band
-    // interleave: the odd grid is the even grid shifted by half a hop step (one extra position), and still covers the span
+    // interleave: the odd grid is the even grid shifted down by Profile::altGridShiftHz — half a hop for a profile with sub-windows — (one extra position), and still covers the span
     CHECK(p2.grid[1].size() >= p2.grid[0].size() && p2.grid[1].size() <= p2.grid[0].size() + 1);
-    for (auto& lp : p2.grid[1]) {   // every odd LO sits half a step off the even pitch
-        double k = (lp.loHz - (p2.grid[0].front().loHz - p2.prof.hopStepHz() / 2)) / p2.prof.hopStepHz();
+    for (auto& lp : p2.grid[1]) {   // every odd LO sits that shift off the even pitch
+        double k = (lp.loHz - (p2.grid[0].front().loHz - p2.prof.altGridShiftHz())) / p2.prof.hopStepHz();
         CHECK(std::fabs(k - std::round(k)) < 1e-6);
     }
     CHECK(p2.grid[1].front().sub.front().keptLoHz <= 470e6 - 12.5e3 + 1);
@@ -51,6 +51,16 @@ int main() {
     CHECK(p5.loGridAutoShiftHz != 0 && std::fabs(p5.loGridAutoShiftHz) <= 22e6);
     for (int g = 0; g < 2; ++g) for (auto& lp : p5.grid[g]) CHECK(spurDistanceHz(lp.loHz, 56e6) >= 2.5e6);
     CHECK(p5.grid[0].size() == 4);   // the shift fits in the slack: no extra hop
+    // Where the LO sits inside the kept band the second grid is 5/16 of a hop off the first, which is
+    // what gives every cell a clean reading: no LO of one grid falls near an edge of the other's
+    // blocks, which is where exactly half a hop would put it.
+    CHECK(std::fabs(p5.prof.altGridShiftHz() - p5.prof.hopStepHz() * 5 / 16) < 1);
+    for (int a = 0; a < 2; ++a)
+        for (auto& lo : p5.grid[a])
+            for (auto& other : p5.grid[1 - a]) {
+                const double lowEdge = other.sub.front().keptLoHz, highEdge = other.sub.back().keptHiHz, clear = p5.prof.hopStepHz() / 8;
+                CHECK(std::fabs(lo.loHz - lowEdge) > clear && std::fabs(lo.loHz - highEdge) > clear);
+            }
     CHECK(p5.grid[0].front().sub[0].keptLoHz <= 470e6 - 12.5e3 + 1 && p5.grid[0].back().sub[0].keptHiHz >= 616e6 + 12.5e3 - 1);
     // usb2 on 470-608 cannot get 13 LOs 2.5 MHz clear of spurs every 32 and 40 MHz; the free shift must still lift
     // the worst case (an odd LO right on 512 MHz) to >= 1.5 MHz without adding hops

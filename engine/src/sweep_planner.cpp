@@ -89,7 +89,7 @@ static std::vector<LoPosition> layoutGrid(const Profile& p, double spanLo, doubl
     int M = std::max(1, int(std::ceil((width - kept) / step - 1e-9)) + 1);
     double covered = kept + (M - 1) * step;
     double c0 = spanLo - (covered - width) / 2 + kept / 2;   // unshifted grid, centred on the span
-    // Shifted grids (interleave = half a step, or the loGridOffsetHz test hook) keep the same pitch and add a
+    // Shifted grids (the second grid = Profile::altGridShiftHz, or the loGridOffsetHz test hook) keep the same pitch and add a
     // position at either end as needed; end positions whose neighbour already covers the span edge are dropped.
     // (Previously the shifted grid was re-centred with M + 1 positions, which moved it by exactly one full step:
     // odd sweeps reused the even LO frequencies plus one wasted hop below the span, so nothing was interleaved.)
@@ -183,7 +183,7 @@ SweepPlan makePlan(const PlanRequest& in, const Profile& prof, const CalModel& c
     auto minSpurDist = [&](double shift) {
         int segs = 1; std::vector<double> centres; double m = 1e300;
         for (int parity = 0; parity < 2; ++parity)
-            for (auto& lp : layoutGrid(prof, spanLo, spanHi, shift - (parity ? prof.hopStepHz() / 2 : 0), segs, centres))
+            for (auto& lp : layoutGrid(prof, spanLo, spanHi, shift - (parity ? prof.altGridShiftHz() : 0), segs, centres))
                 m = std::min(m, spurDistanceHz(lp.loHz, prof.mcrHz));
         return m;
     };
@@ -208,7 +208,7 @@ SweepPlan makePlan(const PlanRequest& in, const Profile& prof, const CalModel& c
         warn(buf);
     }
     pl.grid[0] = layoutGrid(prof, spanLo, spanHi, shift, segments, pl.segCentres);
-    pl.grid[1] = layoutGrid(prof, spanLo, spanHi, shift - prof.hopStepHz() / 2, segments, pl.segCentres);
+    pl.grid[1] = layoutGrid(prof, spanLo, spanHi, shift - prof.altGridShiftHz(), segments, pl.segCentres);
     if (pl.segCentres.size() > 1) warn("span needs " + std::to_string(pl.segCentres.size()) + " calibration segments (in-sweep recals)");
 
     // Predictions (PLAN.md 4.3 constants)

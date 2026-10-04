@@ -10,6 +10,40 @@ using json = nlohmann::json;
 
 namespace scanner {
 
+namespace {
+// How much a reading is worth depends on where in its block the cell was measured. A block reads a
+// noise floor that is not the input's in two places, and both grow as the gain falls and the floor
+// sinks towards the ADC's own: beside the LO, whose residue leaves a narrow skirt either side of the
+// blanked centre cell, and towards the block edges, where noise aliased past the decimation filter
+// lifts the floor in a smooth bowl. Measured 2026-10-03 on a B206mini, usb3-56 (48 MHz kept),
+// 70-1000 MHz, floor relative to the flat part of the block:
+//
+//   offset from the LO     gain 30 dB   gain 20 dB   gain 10 dB
+//   +-25 kHz                              +1.8 dB      +2.3 dB
+//   +-100 kHz                             +0.6 dB      +0.8 dB
+//   +-300 kHz                             +0.1 dB      +0.1 dB
+//   0.5 .. 8 MHz             0.0 dB       0.0 dB       0.0 dB
+//   +-16 MHz                +0.1 dB      +0.3 dB      +0.5 dB
+//   +-20 MHz                +0.2 dB      +0.8 dB      +1.3 dB
+//   +-22 MHz                +0.3 dB      +1.7 dB      +2.2 dB
+//   +-24 MHz (the edge)     +0.5 dB      +2.0 dB      +3.4 dB
+//
+// It is added noise, not gain: a signal reads the same anywhere in the block. So when two LO grids
+// have measured a cell, a weighted mean leaves signals exact while letting the cleaner reading set
+// the floor. Averaging them equally left a ripple at the LO pitch — 1.3 dB at 20 dB gain.
+constexpr double kLoSkirtHz = 300e3;            // the skirt is a property of the LO: a width in Hz
+constexpr double kEdgeTaperFraction = 1.0 / 6;  // the bowl scales with the block: its outer 8 MHz of 48
+constexpr float kMinWeight = 1e-3f;             // two readings from equally bad places still average
+
+// 1 in the flat part of the block, falling to nearly nothing at the LO and at either edge.
+float readingWeight(double fc, double loHz, const SubWindow& sw) {
+    const double taperHz = kEdgeTaperFraction * (sw.keptHiHz - sw.keptLoHz);
+    const double edge = taperHz > 0 ? std::clamp(std::min(fc - sw.keptLoHz, sw.keptHiHz - fc) / taperHz, 0.0, 1.0) : 1.0;
+    const double lo = std::clamp(std::fabs(fc - loHz) / kLoSkirtHz, 0.0, 1.0);
+    return std::max(kMinWeight, float(edge * lo));
+}
+} // namespace
+
 SpurTable SpurTable::forMcr(double mcr, double lo, double hi) {
     SpurTable t;
     for (double f = std::ceil(lo / 40e6) * 40e6; f <= hi; f += 40e6) t.freqsHz.push_back(f);
@@ -50,6 +84,7 @@ void SweepGrid::configure(double startHz, double stepHz, uint32_t binCount, doub
     v1_.assign(n_, 0); v2_.assign(n_, 0); pk_.assign(n_, 0); pk2_.assign(n_, 0);
     mn_.assign(n_, 0); sm_.assign(n_, 0); sm2_.assign(n_, 0);
     cnt_.assign(n_, 0); mask_.assign(n_, proto::MaskHole);
+    wt_.assign(n_, 1.f); prevWt_.assign(n_, 1.f);
     if (!sameGrid) { lastAvg_.assign(n_, std::numeric_limits<float>::quiet_NaN()); lastPk_ = lastAvg_; }
     // A new grid invalidates the sliding comparison: the cells no longer mean the same frequencies.
     prevAvg_.assign(n_, 0); prevPk_.assign(n_, 0); prevSm_.assign(n_, 0); prevOk_.assign(n_, 0);
@@ -69,6 +104,7 @@ void SweepGrid::beginSweep() {
     std::fill(pk_.begin(), pk_.end(), 0.f);
     std::fill(pk2_.begin(), pk2_.end(), 0.f);
     std::fill(mn_.begin(), mn_.end(), 0.f);
+    std::fill(wt_.begin(), wt_.end(), 1.f);
     filled_ = 0; overflow_ = false; clipFrac_ = 0; peakDbfs_ = -300; clipN_ = 0; sampN_ = 0; zeroRuns_ = 0;
 }
 
@@ -89,9 +125,10 @@ void SweepGrid::addSegment(const CellMap& map, const float* avg, const float* pe
         int off = int(std::lround((fc - sw.rfCentreHz) / step_));
         float g = eq ? eq->factor(sw.index, off) : 1.f;
         float a = avg[j] * g;
-        if (cnt_[c] == 0) { v1_[c] = a; pk_[c] = peak[j] * g; mn_[c] = minv[j] * g; sm_[c] = sample[j] * g; }
+        const float w = readingWeight(fc, loHz, sw);
+        if (cnt_[c] == 0) { v1_[c] = a; pk_[c] = peak[j] * g; mn_[c] = minv[j] * g; sm_[c] = sample[j] * g; wt_[c] = w; }
         // The min detector is combined here because min is already the image-rejecting choice.
-        else { v2_[c] = a; pk2_[c] = peak[j] * g; sm2_[c] = sample[j] * g; mn_[c] = std::min(mn_[c], minv[j] * g); }
+        else { v2_[c] = a; pk2_[c] = peak[j] * g; sm2_[c] = sample[j] * g; mn_[c] = std::min(mn_[c], minv[j] * g); wt_[c] = std::min(wt_[c], w); }
         if (cnt_[c] < 2) cnt_[c]++;
         mask_[c] &= uint8_t(~proto::MaskHole);
         if (segClip) mask_[c] |= proto::MaskClip;
@@ -163,15 +200,22 @@ void SweepGrid::rejectImagesAgainstPrevious(double referenceDb) {
                 if (b < a) { v1_[c] = b; pk_[c] = prevPk_[c]; sm_[c] = prevSm_[c]; }
                 mask_[c] |= proto::MaskImage;
             } else {
-                // The two agree, so both are honest: average them and keep the louder peak. Doing
-                // this on every sweep rather than only on some is what keeps the level steady —
-                // alternating between the two grids' own responses is what a moving floor looks like.
-                v1_[c] = 0.5f * (a + b);
-                pk_[c] = std::max(curPk[c], prevPk_[c]);
+                // The two agree, so both are honest about the signal: take their mean, weighted by
+                // how clean a place in its block each was measured at. The weights depend only on
+                // the cell and the grid, so the mix is the same on every sweep — doing this on every
+                // sweep rather than only on some is what keeps the level steady, and alternating
+                // between the two grids' own responses is what a moving floor looks like.
+                const float wa = wt_[c], wb = prevWt_[c];
+                v1_[c] = (wa * a + wb * b) / (wa + wb);
+                // Peak and sample are single readings, not means: from the better-placed sweep when
+                // one clearly is, and otherwise the louder peak as before.
+                if (wb > 2 * wa) { pk_[c] = prevPk_[c]; sm_[c] = prevSm_[c]; }
+                else if (!(wa > 2 * wb)) pk_[c] = std::max(curPk[c], prevPk_[c]);
             }
         }
     }
     prevAvg_.swap(curAvg); prevPk_.swap(curPk); prevSm_.swap(curSm); prevOk_.swap(curOk);
+    prevWt_ = wt_;
     prevRefDb_ = referenceDb; havePrev_ = true;
 }
 

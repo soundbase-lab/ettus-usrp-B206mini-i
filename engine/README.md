@@ -85,7 +85,9 @@ threads and sweep loop · `src/protocol.*` frame codec · `src/socket.*` UDS cli
   sub-window carried a −9 to −12 dB copy of the neighbouring window's spectrum shifted by one window width
   (a 500.31 MHz DTV pilot showed at 493.5 MHz in every usb2 sweep). A capture that still starts late is shortened
   to end on schedule and counted in `lateStarts`.
-- Odd (interleaved) sweeps shift the LO grid by half a hop step. The earlier layout re-centred the shifted grid and
+- Odd (interleaved) sweeps shift the LO grid by `Profile::altGridShiftHz`: half a hop step, or 5/16 of one on the
+  profiles whose LO sits inside the kept band, so that each grid's LO and block edges fall in the flat part of the
+  other's blocks (see `imageReject` in `docs/engine-protocol.md`). The earlier layout re-centred the shifted grid and
   moved it by a whole step, so odd sweeps reused the even LO frequencies plus one wasted hop.
 - Every LO is kept ≥ 2.5 MHz from the internal spurs (n × 40 MHz reference, n × MCR) where the grid's centring
   slack allows it. An LO parked 0.85 MHz below 520 MHz showed an intermittent 0.7 MHz burst between the LO and
