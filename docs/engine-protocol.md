@@ -197,8 +197,8 @@ Warnings and errors reach the plugin's log; info does not.
 
 ```json
 { "cmd": "setPlan", "plan": { "startHz": 470e6, "stopHz": 608e6, "rbwHz": 25000, "vbwHz": 2500,
-    "dwell": "fast|coordination|hq", "gainMode": "auto|manual", "gainDb": 50, "refLevelDbm": -50,
-    "imageReject": false,
+    "dwell": "fast|coordination|hq|long", "gainMode": "auto|manual", "gainDb": 50, "refLevelDbm": -50,
+    "imageReject": false, "spurMask": true, "window": "bh4|hann",
     "profile": "auto|usb2|usb2-simple|usb2-turbo|usb3-16|usb3-28|usb3-32|usb3-56",
     "detector": "rms|peak|sample|min", "antenna": "RX2|TX/RX", "mode": "continuous|single" } }
 { "cmd": "start" }      // sweep continuously with the current plan
@@ -214,6 +214,23 @@ while sweeping takes effect at the next sweep boundary — so a frame already in
 flight can still carry the old grid, and the adapter drops any frame whose
 `startHz`/`stepHz`/`binCount` do not match the configuration it is currently
 reporting.
+
+Four of those fields shape the trace rather than the grid:
+
+- **`vbwHz`** is averaging: the engine averages `round(RBW / VBW)` power
+  spectra per sub-window, with VBW held inside `[RBW / 1000, RBW]`. The plugin
+  offers it as that ratio (the `averaging` control) and sends the bandwidth.
+- **`dwell`** is the least time a sub-window is captured for — 0, 10, 25 and
+  100 ms — and so a minimum on the same count: the engine takes whichever of
+  the two asks for more spectra, and reports the result as `nAvg`. `long`
+  exists for the peak detector, which only sees a burst a capture overlaps.
+- **`window`** is the FFT window. Cells integrate power density, so levels are
+  the same under either; Hann has the narrower main lobe and the higher
+  sidelobes.
+- **`spurMask`** fills the cells at the internal spur frequencies (n × 40 MHz,
+  n × MCR) from their neighbours and flags them in the mask. Off, those cells
+  carry what was measured. It does not change where the LOs go: the planner
+  keeps them clear of the same frequencies either way.
 
 ## Command-line modes the plugin uses
 

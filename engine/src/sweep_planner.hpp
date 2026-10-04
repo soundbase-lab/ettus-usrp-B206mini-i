@@ -10,7 +10,7 @@
 
 namespace scanner {
 
-enum class Dwell { Fast, Coordination, Hq };
+enum class Dwell { Fast, Coordination, Hq, Long };
 enum class GainMode { Auto, Manual };
 enum class SweepMode { Continuous, Single };
 
@@ -28,6 +28,11 @@ struct PlanRequest {
     // keep the quieter of the two. Costs the one extra LO position the second grid carries and
     // removes receiver images, which move with the LO while real signals do not.
     bool imageReject = false;
+    // Replace the cells at the internal spur frequencies (n x 40 MHz reference, n x MCR) by their
+    // neighbours' mean. Off shows what those cells really measured: the spur if this unit has one
+    // there, and any signal that happens to sit exactly on it. LO placement stays clear of the
+    // spurs either way.
+    bool spurMask = true;
     SweepMode mode = SweepMode::Continuous;
     WindowType window = WindowType::BH4;
     double analogBwHz = 0;
@@ -78,6 +83,7 @@ SweepPlan makePlan(const PlanRequest& req, const Profile& prof, const CalModel& 
 double spurDistanceHz(double loHz, double mcrHz);
 
 const char* dwellName(Dwell d);
+double dwellSeconds(Dwell d);
 const char* gainModeName(GainMode g);
 const char* sweepModeName(SweepMode m);
 const char* detectorName(proto::Detector d);

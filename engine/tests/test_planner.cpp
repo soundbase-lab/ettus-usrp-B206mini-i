@@ -76,6 +76,22 @@ int main() {
     CHECK(r4.rbwHz == 12500 && r4.detector == proto::DetPeak && w.size() == 1);
     auto p4 = makePlan(r4, *findProfile("usb2-simple"), cal, false);
     CHECK(p4.stepHz == 12500 && p4.binCount == 11041 && p4.fftN == 10240);
+    // long dwell: 100 ms per sub-window at 8 MS/s with N=5120 -> 312 frames, ten times the coordination dwell
+    PlanRequest r6; r6.profile = "usb2-simple"; r6.applyJson({{"dwell", "long"}});
+    auto p6 = makePlan(r6, *findProfile("usb2-simple"), cal, false);
+    CHECK(r6.dwell == Dwell::Long && p6.nAvg == 312 && p6.toJson()["dwell"] == "long");
+    CHECK(double(p6.samplesPerWindow) / 8e6 >= 0.100 && double(p6.samplesPerWindow) / 8e6 < 0.101);
+    CHECK(p6.predictedSweepMs > 3 * pl.predictedSweepMs);
+    // averaging beyond the dwell floor comes from RBW / VBW, and VBW is held inside [RBW / 1000, RBW]
+    PlanRequest r7; r7.profile = "usb2-simple"; r7.applyJson({{"dwell", "fast"}, {"vbwHz", 250}});
+    CHECK(makePlan(r7, *findProfile("usb2-simple"), cal, false).nAvg == 100);
+    r7.applyJson({{"vbwHz", 1e9}});
+    { auto p7 = makePlan(r7, *findProfile("usb2-simple"), cal, false); CHECK(p7.nAvg == 1 && p7.req.vbwHz == 25e3); }
+    // spur masking is on unless asked otherwise, and both it and the window survive the echo
+    CHECK(pl.toJson()["spurMask"] == true && pl.toJson()["window"] == "bh4");
+    PlanRequest r8; auto w8 = r8.applyJson({{"spurMask", false}, {"window", "hann"}});
+    CHECK(w8.empty() && !r8.spurMask && r8.window == WindowType::Hann);
+    { auto j8 = makePlan(r8, *findProfile("usb2-simple"), cal, false).toJson(); CHECK(j8["spurMask"] == false && j8["window"] == "hann"); }
     fprintf(stderr, "usb2-simple predicted %.0f ms (nAvg %d), usb2 %.0f ms\n", pl.predictedSweepMs, pl.nAvg, p2.predictedSweepMs);
     if (!fails) printf("planner: ok\n");
     return fails ? 1 : 0;

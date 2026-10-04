@@ -23,7 +23,10 @@ double spurDistanceHz(double loHz, double mcrHz) {
     return d;
 }
 
-const char* dwellName(Dwell d) { return d == Dwell::Fast ? "fast" : d == Dwell::Hq ? "hq" : "coordination"; }
+const char* dwellName(Dwell d) { return d == Dwell::Fast ? "fast" : d == Dwell::Hq ? "hq" : d == Dwell::Long ? "long" : "coordination"; }
+// Minimum capture time per sub-window. Long is for the peak detector: a burst shorter than the
+// time between sweeps is only seen if the capture happens to overlap it.
+double dwellSeconds(Dwell d) { return d == Dwell::Fast ? 0 : d == Dwell::Hq ? 0.025 : d == Dwell::Long ? 0.100 : 0.010; }
 const char* gainModeName(GainMode g) { return g == GainMode::Auto ? "auto" : "manual"; }
 const char* sweepModeName(SweepMode m) { return m == SweepMode::Single ? "single" : "continuous"; }
 const char* detectorName(proto::Detector d) {
@@ -46,9 +49,10 @@ std::vector<std::string> PlanRequest::applyJson(const json& j) {
             else if (k == "antenna") antenna = v.get<std::string>();
             else if (k == "interleave") interleave = v.get<bool>();
             else if (k == "imageReject") imageReject = v.get<bool>();
+            else if (k == "spurMask") spurMask = v.get<bool>();
             else if (k == "analogBwHz") analogBwHz = v.get<double>();
             else if (k == "loGridOffsetHz") loGridOffsetHz = v.get<double>();
-            else if (k == "dwell") { auto s = v.get<std::string>(); dwell = s == "fast" ? Dwell::Fast : s == "hq" ? Dwell::Hq : Dwell::Coordination; }
+            else if (k == "dwell") { auto s = v.get<std::string>(); dwell = s == "fast" ? Dwell::Fast : s == "hq" ? Dwell::Hq : s == "long" ? Dwell::Long : Dwell::Coordination; }
             else if (k == "gainMode") gainMode = v.get<std::string>() == "manual" ? GainMode::Manual : GainMode::Auto;
             else if (k == "mode") mode = v.get<std::string>() == "single" ? SweepMode::Single : SweepMode::Continuous;
             else if (k == "window") window = v.get<std::string>() == "hann" ? WindowType::Hann : WindowType::BH4;
@@ -65,7 +69,7 @@ json PlanRequest::toJson() const {
     return json{{"startHz", startHz}, {"stopHz", stopHz}, {"rbwHz", rbwHz}, {"vbwHz", vbwHz},
                 {"dwell", dwellName(dwell)}, {"gainMode", gainModeName(gainMode)}, {"gainDb", gainDb},
                 {"refLevelDbm", refLevelDbm}, {"profile", profile}, {"detector", detectorName(detector)},
-                {"antenna", antenna}, {"interleave", interleave}, {"imageReject", imageReject}, {"mode", sweepModeName(mode)},
+                {"antenna", antenna}, {"interleave", interleave}, {"imageReject", imageReject}, {"spurMask", spurMask}, {"mode", sweepModeName(mode)},
                 {"window", windowName(window)}, {"analogBwHz", analogBwHz}, {"loGridOffsetHz", loGridOffsetHz}};
 }
 
@@ -152,7 +156,7 @@ SweepPlan makePlan(const PlanRequest& in, const Profile& prof, const CalModel& c
     if (r.vbwHz <= 0) r.vbwHz = r.rbwHz / 10;
     r.vbwHz = clampv(r.vbwHz, r.rbwHz / 1000, r.rbwHz);
     int nAvg = clampv(int(std::lround(r.rbwHz / r.vbwHz)), 1, 1000);
-    double dwellS = r.dwell == Dwell::Fast ? 0 : r.dwell == Dwell::Hq ? 0.025 : 0.010;
+    double dwellS = dwellSeconds(r.dwell);
     int nDwell = int(std::ceil((dwellS * prof.rateHz - pl.fftN) / (pl.fftN / 2.0))) + 1;
     pl.nAvg = std::max(nAvg, std::max(1, nDwell));
     pl.samplesPerWindow = samplesNeeded(pl.fftN, pl.nAvg);
