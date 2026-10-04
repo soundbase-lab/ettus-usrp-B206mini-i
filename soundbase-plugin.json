@@ -61,21 +61,21 @@
       "id": "engineNote",
       "type": "static-text",
       "label": "Sweep engine",
-      "help": "Drives the radio through a small C++ engine, built on this machine the first time the plugin runs because it links against your installed UHD.\n\nNeeds cmake and UHD 4.9 or newer. On macOS:\n\n```sh\nbrew install cmake ninja uhd\n```\n\nProgress shows as the plugin's status, and devices appear when the build finishes. To skip the build, set **Engine binary** to a build you already have."
+      "help": "Built on this machine the first time the plugin runs. Needs cmake and UHD 4.9 or newer:\n\n```sh\nbrew install cmake ninja uhd\n```"
     },
     {
       "id": "enginePath",
       "type": "textinput",
       "label": "Engine binary",
       "default": "",
-      "help": "Leave blank to use the engine built into this plugin (engine/build/engine). Set it to use a build of your own."
+      "help": "Leave blank to use the built-in engine."
     },
     {
       "id": "levelOffsetDb",
       "type": "number",
       "label": "Level offset",
       "default": 0,
-      "help": "Added to every reported amplitude, in dB. Use it to correct for feeder loss, an inline preamplifier or an attenuator."
+      "help": "Added to every amplitude, in dB. Corrects for feeder loss or a preamp."
     }
   ],
   "deviceConfigFields": [
@@ -84,7 +84,7 @@
       "type": "textinput",
       "label": "Serial number",
       "default": "",
-      "help": "The USRP's serial, as printed by `uhd_find_devices`. Leave blank when only one radio is attached."
+      "help": "Leave blank when only one radio is attached."
     }
   ],
   "stateKeys": []

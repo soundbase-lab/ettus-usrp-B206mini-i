@@ -9,7 +9,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { EngineClient, startupTimeoutMessage } from '../driver/engine-client.js';
+import { EngineClient, answers, startupTimeoutMessage } from '../driver/engine-client.js';
+import { FAKE_ENGINE } from '../driver/locate.js';
 
 const args = { timeoutMs: 90_000, deviceArgs: 'type=b200,serial=365C108' };
 
@@ -87,4 +88,42 @@ test('a real engine that connects and goes quiet is killed and reported with its
     return true;
   });
   assert.equal(engine.running, false, 'the silent engine must not be left holding the radio');
+});
+
+// At startup the engine announces its default plan twice — once on its own,
+// once for the plan its command line carried — each with an `applied` nobody
+// asked for. The first status sits between the two, so a plan sent as soon as
+// the engine is ready can be overtaken by the second announcement. Matching
+// replies to plans by order alone, the plugin took that announcement as its
+// answer: it echoed the default span, expected sweeps on that grid, and
+// dropped every sweep the engine really sent. On a real radio that was a
+// device that starts and never draws a trace, about one start in two.
+test('the first plan is answered by its own reply, not by a plan the engine announces at startup', async () => {
+  const engine = new EngineClient({
+    binPath: FAKE_ENGINE,
+    deviceArgs: 'type=b200,serial=TEST02',
+    tag: 'startup',
+  });
+  try {
+    await engine.start();
+    const reply = await engine.setPlan({ startHz: 470e6, stopHz: 616e6 });
+    assert.equal(reply.applied.stopHz, 616e6, 'the echo is the reply to this plan');
+    assert.equal(reply.applied.binCount, 5841);
+    // and the next one is not answered by the reply before it
+    const next = await engine.setPlan({ stopHz: 600e6 });
+    assert.equal(next.applied.stopHz, 600e6);
+  } finally {
+    await engine.stop();
+  }
+});
+
+test('a reply answers a plan only when it echoes what the plan set', () => {
+  const announced = { type: 'applied', requested: { startHz: 470e6, stopHz: 608e6, imageReject: false, dwell: 'coordination' } };
+  assert.equal(answers(announced, { startHz: 470e6, stopHz: 616e6 }), false, 'a different span');
+  assert.equal(answers(announced, { imageReject: true }), false, 'a different switch');
+  assert.equal(answers(announced, { dwell: 'fast' }), false, 'a different choice');
+  assert.equal(answers(announced, { startHz: 470e6, stopHz: 608e6 }), true, 'the same values are an answer');
+  assert.equal(answers(announced, {}), true, 'an empty patch asks only for the plan in force');
+  assert.equal(answers(announced, { somethingNew: 1 }), true, 'a field the engine does not report cannot be judged');
+  assert.equal(answers({ type: 'applied' }, { stopHz: 616e6 }), true, 'nor can a reply with no echo at all');
 });

@@ -45,7 +45,9 @@ public:
     // Resolves overlaps, applies the image heuristic, masks spurs, fills holes from the previous sweep.
     void finalize();
     // Combines this sweep with the one before it, which was measured at the other LO grid: where the
-    // two disagree by more than the image threshold the quieter wins, and otherwise they are averaged.
+    // two disagree by more than the image threshold the quieter wins. Where they agree they are
+    // averaged, each weighted by how clean a place in its own block it was measured at: a cell beside
+    // the LO or towards a block edge carries extra noise of the receiver's own.
     // `referenceDb` is the gain the sweep was taken at; sweeps taken at different gains are not
     // comparable, so a change in it skips one combination rather than producing a wrong level.
     // Call after finalize(). The sweep's own values, not the combined ones, are what the next sweep
@@ -71,6 +73,9 @@ private:
     std::vector<float> lastAvg_, lastPk_;           // last valid values (hole fill across sweeps)
     std::vector<float> prevAvg_, prevPk_, prevSm_;  // the previous sweep alone, at the other LO grid
     std::vector<uint8_t> prevOk_;                   // that cell was measured, not hole- or spur-filled
+    // What each cell's reading is worth, from where in its block it was measured (1 = the flat part):
+    // this sweep, and the previous one.
+    std::vector<float> wt_, prevWt_;
     bool havePrev_ = false; double prevRefDb_ = 0;
     std::vector<uint32_t> spurCells_;
     bool overflow_ = false; double clipFrac_ = 0, peakDbfs_ = -300; uint64_t clipN_ = 0, sampN_ = 0; uint32_t zeroRuns_ = 0;

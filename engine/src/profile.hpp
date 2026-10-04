@@ -21,6 +21,15 @@ struct Profile {
     double subWidthHz() const { return keptHz / subWindows; }
     double overlapHz() const { return 300e3; }                  // overlap between adjacent LO positions
     double hopStepHz() const { return keptHz - overlapHz(); }   // LO grid step
+    // How far below the first LO grid the second one sits (interleave, imageReject). Half a hop is
+    // the obvious offset, and where the LO sits inside the kept band it is the wrong one: a block
+    // reads noise of its own beside its LO and towards its edges (see the table in stitch.cpp), and
+    // half a hop puts each grid's LO exactly on the other's edge, so the cells there have no clean
+    // reading in either grid. At 5/16 of a hop each grid's LO and edges fall in the flat part of the
+    // other's blocks, and the two LOs stay far enough apart (14.9 MHz at 56 MS/s) that an LO-centred
+    // artefact in one grid is never under the other's. Profiles with sub-windows keep half a hop:
+    // their LO is already on a sub-window boundary, and their spur clearance was worked out for it.
+    double altGridShiftHz() const { return loHole ? hopStepHz() * 5 / 16 : hopStepHz() / 2; }
 };
 
 const std::vector<Profile>& allProfiles();

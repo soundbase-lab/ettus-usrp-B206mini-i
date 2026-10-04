@@ -112,6 +112,21 @@ sweep is in progress:
 { "type": "applied", "requested": { … }, "applied": { … }, "warnings": ["startHz snapped to 470.000 MHz"] }
 ```
 
+**Not every `applied` answers a `setPlan` the plugin sent.** The engine reports
+every plan it puts in force, including its own: at startup it applies its
+default plan, and then the plan its command line carried (`--profile auto`),
+and announces each. The first `status` sits between the two, about a millisecond
+before the second, so a plan sent as soon as the engine is ready can be
+overtaken by that second announcement. `requested` is what tells them apart: it
+is the whole plan the engine was working from, with every patch received so far
+laid over it and nothing yet quantised, so the answer to a patch carries every
+value the patch set and an earlier announcement carries the old ones.
+`EngineClient` takes an `applied` as the answer to a plan only when it does
+(`answers()` in `driver/engine-client.js`). Matching by order alone told the
+plugin the default span was in force while the engine swept the requested one,
+and every sweep was then dropped as being on the wrong grid — a device that
+starts and never draws a trace.
+
 **`applied` is what the plugin echoes to SoundBase.** The engine quantises what
 it was asked for — the span onto the output grid, the RBW onto what the FFT can
 realise, the gain to an integer within the profile's window — and its answer is
@@ -133,8 +148,9 @@ A plan field. Normally one sweep is one LO grid. With `imageReject` the grid
 alternates every sweep and `SweepGrid::rejectImagesAgainstPrevious()` combines
 each sweep with the one before it, which was measured at the other placement:
 where the two disagree by more than 6 dB the quieter wins, and where they agree
-they are averaged. A receiver image moves when the LO moves and a real signal
-does not, so this removes images the front end leaks through. Measured on a
+they are averaged, each weighted by where in its block it was measured. A
+receiver image moves when the LO moves and a real signal does not, so this
+removes images the front end leaks through. Measured on a
 B206mini over 470-608 MHz, a span that showed a mirrored carrier on 25% of
 sweeps showed none at all, at 17.0 sweeps/s against a 20.4/s baseline.
 
@@ -149,6 +165,23 @@ using the current sweep alone would alternate the output between the two grids'
 frequency responses, which is what a moving noise floor looks like. Hole-filled
 and spur-filled cells are excluded — comparing against an invented value would
 reject honest signal.
+
+**The average is weighted, and the second grid is not half a hop away.** A
+block's noise floor is not flat. Beside the LO there is a narrow skirt, and
+towards the edges the floor rises in a smooth bowl; both grow as the gain falls
+and the floor sinks towards the ADC's own. On a B206mini with `usb3-56` the
+edge reads +0.5 dB at 30 dB gain, +2.0 dB at 20 dB and +3.4 dB at 10 dB, and the
+cells either side of the LO +1.8 dB at 20 dB. It is added noise rather than
+gain, so a signal reads the same anywhere in the block. Each reading is
+therefore weighted — 1 in the flat part, tapering to nothing over the outer
+sixth of the block and within 300 kHz of the LO — which leaves signals exact
+and lets the cleaner reading set the floor. For that to work every cell needs
+one clean reading, and half a hop puts each grid's LO exactly on the other's
+edge; so on the profiles whose LO sits inside the kept band (`usb3-32`,
+`usb3-56`) the second grid is 5/16 of a hop below the first
+(`Profile::altGridShiftHz`). Averaging equally at half a hop left a ripple at
+half the hop pitch — 23.85 MHz — of 1.2 dB at 20 dB gain and 1.9 dB at 10 dB;
+weighted, it is under 0.5 dB at both.
 
 **It needs the flatness table.** Each LO placement has its own frequency
 response across the kept band, and without `data/eq/<profile>.eq.json` the two

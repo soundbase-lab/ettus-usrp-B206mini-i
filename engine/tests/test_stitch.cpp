@@ -22,6 +22,21 @@ void addFlat(SweepGrid& g, float avgLin, float peakLin, float sampleLin, double 
     g.addSegment(map, avg.data(), peak.data(), minv.data(), sample.data(), st, sw, nullptr, false, loHz);
 }
 
+// The same, measured by a block that keeps [keptLoHz, keptHiHz]: where a cell sits in that block —
+// beside the LO, towards an edge, or in the flat part — is what its reading is worth when two agree.
+void addPlaced(SweepGrid& g, float avgLin, float peakLin, float sampleLin, double loHz, double keptLoHz, double keptHiHz) {
+    CellMap map; map.firstCell = 0; map.nCells = kCells;
+    std::vector<float> avg(kCells, avgLin), peak(kCells, peakLin), minv(kCells, avgLin), sample(kCells, sampleLin);
+    SegmentStats st; st.valid = true;
+    SubWindow sw; sw.index = 0; sw.rfCentreHz = 0.5 * (keptLoHz + keptHiHz); sw.keptLoHz = keptLoHz; sw.keptHiHz = keptHiHz;
+    g.addSegment(map, avg.data(), peak.data(), minv.data(), sample.data(), st, sw, nullptr, false, loHz);
+}
+// The little grid is 470.000-470.175 MHz. Blocks 48 MHz wide that see it from different places:
+void addClear(SweepGrid& g, float a, float p, float s) { addPlaced(g, a, p, s, 482e6, 458e6, 506e6); }        // the flat part
+void addAtEdge(SweepGrid& g, float a, float p, float s) { addPlaced(g, a, p, s, 494e6, 470e6, 518e6); }       // cell 0 on the edge
+void addHalfTaper(SweepGrid& g, float a, float p, float s) { addPlaced(g, a, p, s, 490e6, 466e6, 514e6); }    // cell 0 is 4 of the 8 MHz taper in
+void addAtLo(SweepGrid& g, float a, float p, float s) { addPlaced(g, a, p, s, 470.05e6, 446.05e6, 494.05e6); } // LO on cell 2
+
 SweepGrid makeGrid() {
     SweepGrid g;
     g.configure(kStart, kStep, kCells, kStep, SpurTable{});
@@ -133,6 +148,78 @@ int main() {
         Out o = read(g);
         CHECK_NEAR(o.avg[0], 10.0 * std::log10(100.0), 0.01);
         CHECK((g.mask()[0] & proto::MaskImage) == 0);
+    }
+
+    // Two sweeps that agree, one of them measured on its LO: the LO's skirt is the receiver's own
+    // noise, so that reading is worth nothing and the clear one sets the level — whichever of the two
+    // sweeps it arrived in, so the output is the same on both and the level does not alternate.
+    {
+        SweepGrid g = makeGrid();
+        g.beginSweep(); addAtLo(g, 1.5f, 3.0f, 1.6f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        g.beginSweep(); addClear(g, 1.0f, 2.0f, 1.1f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        Out o = read(g);
+        CHECK_NEAR(o.avg[2], 10.0 * std::log10(1.0), 0.01);
+        CHECK_NEAR(o.peak[2], 10.0 * std::log10(2.0), 0.01);
+        CHECK_NEAR(o.sample[2], 10.0 * std::log10(1.1), 0.01);
+        CHECK((g.mask()[2] & proto::MaskImage) == 0);
+        g.beginSweep(); addAtLo(g, 1.5f, 3.0f, 1.6f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        o = read(g);
+        CHECK_NEAR(o.avg[2], 10.0 * std::log10(1.0), 0.01);
+        CHECK_NEAR(o.peak[2], 10.0 * std::log10(2.0), 0.01);
+        CHECK_NEAR(o.sample[2], 10.0 * std::log10(1.1), 0.01);
+        // The skirt tapers: cell 6, 100 kHz from that LO, is worth a third, so (1/3 x 1.5 + 1.0) / (4/3).
+        CHECK_NEAR(o.avg[6], 10.0 * std::log10(1.125), 0.01);
+    }
+
+    // A block edge carries aliased noise: a reading taken on the edge gives way to a clear one too.
+    {
+        SweepGrid g = makeGrid();
+        g.beginSweep(); addClear(g, 1.0f, 2.0f, 1.0f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        g.beginSweep(); addAtEdge(g, 1.6f, 3.2f, 1.6f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        Out o = read(g);
+        CHECK_NEAR(o.avg[0], 10.0 * std::log10(1.0), 0.01);
+        CHECK_NEAR(o.peak[0], 10.0 * std::log10(2.0), 0.01);
+    }
+
+    // The weight falls off smoothly towards the edge rather than switching, so the trace has no step
+    // where it starts: halfway down the taper a reading counts half, (1.0 + 0.5 x 1.6) / 1.5.
+    {
+        SweepGrid g = makeGrid();
+        g.beginSweep(); addClear(g, 1.0f, 2.0f, 1.0f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        g.beginSweep(); addHalfTaper(g, 1.6f, 3.2f, 1.6f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        Out o = read(g);
+        CHECK_NEAR(o.avg[0], 10.0 * std::log10(1.2), 0.01);
+    }
+
+    // A signal reads the same anywhere in the block, so the weighting leaves it exactly where it was.
+    {
+        SweepGrid g = makeGrid();
+        g.beginSweep(); addAtLo(g, 50.0f, 60.0f, 50.0f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        g.beginSweep(); addHalfTaper(g, 50.0f, 60.0f, 50.0f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        Out o = read(g);
+        for (uint32_t c = 0; c < kCells; ++c) CHECK_NEAR(o.avg[c], 10.0 * std::log10(50.0), 0.01);
+    }
+
+    // Two readings from equally bad places are still averaged: there is nothing to choose between them.
+    {
+        SweepGrid g = makeGrid();
+        g.beginSweep(); addAtEdge(g, 1.0f, 2.0f, 1.0f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        g.beginSweep(); addAtEdge(g, 3.0f, 6.0f, 3.0f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        Out o = read(g);
+        CHECK_NEAR(o.avg[0], 10.0 * std::log10(2.0), 0.01);
+        CHECK_NEAR(o.peak[0], 10.0 * std::log10(6.0), 0.01);
+    }
+
+    // The weighting only applies where the two agree. A reading more than 6 dB above the other is an
+    // image wherever it was measured, and the quieter one wins even from the worse place.
+    {
+        SweepGrid g = makeGrid();
+        g.beginSweep(); addAtLo(g, 1.0f, 2.0f, 1.5f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        g.beginSweep(); addClear(g, 100.0f, 200.0f, 150.0f); g.finalize(); g.rejectImagesAgainstPrevious(20.0);
+        Out o = read(g);
+        CHECK_NEAR(o.avg[2], 10.0 * std::log10(1.0), 0.01);
+        CHECK_NEAR(o.peak[2], 10.0 * std::log10(2.0), 0.01);
+        CHECK((g.mask()[2] & proto::MaskImage) != 0);
     }
 
     printf(fails ? "test_stitch: %d failure(s)\n" : "test_stitch: ok\n", fails);

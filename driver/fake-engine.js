@@ -93,8 +93,14 @@ if (!socketPath) {
 
 // ---------------------------------------------------------------------------
 
+// The gap between the engine's two startup announcements (see 'connect').
+const SECOND_ANNOUNCEMENT_MS = Number(process.env.SB_USRP_MOCK_ANNOUNCE_MS ?? 40);
+
 let plan = { ...DEFAULT_PLAN };
 let grid = snapToGrid(plan.startHz, plan.stopHz, plan.rbwHz);
+/** Plans that arrived before the second startup announcement; applied after it. */
+let startingUp = true;
+let earlyPlans = [];
 let sweeping = false;
 let sweepId = 0;
 let seq = 0;
@@ -122,10 +128,37 @@ socket.on('connect', () => {
     const timer = setTimeout(() => process.exit(9), dieAfterMs);
     timer.unref?.();
   }
-  emitStatus();
+  // The real engine's first moments, in the order they happen. It applies its
+  // default plan and announces it — an `applied` nobody asked for, then the
+  // first status. It then applies the plan its own command line carried
+  // (`--profile auto`), which changes nothing and is announced all the same.
+  // On a real radio the two are about a millisecond apart, and a plan sent on
+  // the first status lands in between as often as not; it is applied after the
+  // second announcement and answered with an `applied` of its own. A client
+  // that matches replies to plans by order alone takes the second announcement
+  // as its answer. The gap is stretched here so that happens every time.
+  announce();
+  const second = setTimeout(() => {
+    announce();
+    startingUp = false;
+    const queued = earlyPlans;
+    earlyPlans = [];
+    if (queued.length) applyPlan(Object.assign({}, ...queued));
+  }, SECOND_ANNOUNCEMENT_MS);
+  second.unref?.();
   const statusTimer = setInterval(emitStatus, STATUS_MS);
   statusTimer.unref?.();
 });
+
+/** An `applied` for the plan already in force, and the status that follows it. */
+function announce() {
+  send({
+    msgType: MsgType.Status,
+    profileId: 7,
+    json: { type: 'applied', requested: { ...plan }, applied: appliedPlan(), warnings: [] },
+  });
+  emitStatus();
+}
 
 let partial = '';
 socket.on('data', (chunk) => {
@@ -171,11 +204,18 @@ function handle(command) {
   }
 }
 
-function applyPlan(requested) {
+function applyPlan(patch) {
+  if (startingUp) {
+    earlyPlans.push(patch);
+    return;
+  }
   const merged = { ...plan };
-  for (const [k, v] of Object.entries(requested)) {
+  for (const [k, v] of Object.entries(patch)) {
     if (v !== undefined) merged[k] = v;
   }
+  // What the real engine echoes as `requested`: the whole plan it is working
+  // from, with the patch laid over it, before any clamping or snapping.
+  const requested = { ...merged };
   const warnings = [];
   merged.startHz = Math.min(Math.max(merged.startHz, 70e6), 6e9);
   merged.stopHz = Math.min(Math.max(merged.stopHz, merged.startHz + 1e6), 6e9);

@@ -200,13 +200,20 @@ export class EngineClient {
     }
   }
 
-  /** Send a plan and resolve with the engine's `applied` echo. */
+  /**
+   * Send a plan and resolve with the engine's `applied` echo — the one that
+   * answers this plan. The engine also announces plans nobody here asked for:
+   * at startup it applies its default plan, and then the plan its own command
+   * line carried, and reports each. The second of those can arrive after the
+   * first plan has been sent, so a reply is only taken as the answer when it
+   * echoes what was sent (see `answers`).
+   */
   async setPlan(plan) {
     if (!this.#conn) {
       throw new EngineError('the sweep engine is not connected');
     }
     const applied = new Promise((resolve, reject) => {
-      const waiter = { resolve, reject };
+      const waiter = { resolve, reject, plan };
       const timer = setTimeout(() => {
         this.#applyWaiters = this.#applyWaiters.filter((w) => w !== waiter);
         reject(new EngineError('the sweep engine did not acknowledge the plan'));
@@ -397,9 +404,11 @@ export class EngineClient {
           this.#onReady?.(frame.json);
           this.onStatus?.(frame.json);
         } else if (type === 'applied') {
-          const waiter = this.#applyWaiters.shift();
-          waiter?.done();
-          waiter?.resolve(frame.json);
+          const waiter = this.#applyWaiters[0];
+          if (!waiter || !answers(frame.json, waiter.plan)) break;
+          this.#applyWaiters.shift();
+          waiter.done();
+          waiter.resolve(frame.json);
         }
         break;
       }
@@ -458,6 +467,36 @@ export class EngineClient {
   #log(level, msg) {
     this.onLog?.({ level, msg });
   }
+}
+
+/**
+ * True when an `applied` message is the engine's answer to `plan`.
+ *
+ * `requested` in the message is the whole plan the engine was working from —
+ * its previous one with every patch received so far laid over it, before any
+ * quantising. So the answer to a patch carries every value the patch set, and
+ * an announcement made before the patch arrived carries the old ones. Taking
+ * such an announcement as the answer tells the caller a span is in force that
+ * the engine is about to leave, and every sweep after that arrives on a grid
+ * the caller is not expecting.
+ *
+ * A message without `requested`, or a field it does not report, cannot be
+ * judged and is accepted: this must never turn a working engine into one that
+ * "did not acknowledge the plan".
+ */
+export function answers(reply, plan) {
+  const requested = reply?.requested;
+  if (!requested || typeof requested !== 'object') return true;
+  for (const [key, sent] of Object.entries(plan ?? {})) {
+    if (sent === undefined || !(key in requested)) continue;
+    const echoed = requested[key];
+    if (typeof sent === 'number' && typeof echoed === 'number') {
+      if (Math.abs(sent - echoed) > 1e-9 * Math.max(1, Math.abs(sent))) return false;
+    } else if (sent !== echoed) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function guessLevel(line) {

@@ -24,9 +24,9 @@ struct PlanRequest {
     proto::Detector detector = proto::DetRms;
     std::string antenna = "RX2";
     bool interleave = false;
-    // Measure every cell at two LO placements, half a hop apart, within one sweep and keep the
-    // quieter of the two. Costs half the sweep rate and removes receiver images, which move with
-    // the LO while real signals do not.
+    // Measure every cell at two LO placements, just under half a hop apart, on alternate sweeps and
+    // keep the quieter of the two. Costs the one extra LO position the second grid carries and
+    // removes receiver images, which move with the LO while real signals do not.
     bool imageReject = false;
     SweepMode mode = SweepMode::Continuous;
     WindowType window = WindowType::BH4;
