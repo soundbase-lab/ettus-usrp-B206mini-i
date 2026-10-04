@@ -112,6 +112,21 @@ sweep is in progress:
 { "type": "applied", "requested": { … }, "applied": { … }, "warnings": ["startHz snapped to 470.000 MHz"] }
 ```
 
+**Not every `applied` answers a `setPlan` the plugin sent.** The engine reports
+every plan it puts in force, including its own: at startup it applies its
+default plan, and then the plan its command line carried (`--profile auto`),
+and announces each. The first `status` sits between the two, about a millisecond
+before the second, so a plan sent as soon as the engine is ready can be
+overtaken by that second announcement. `requested` is what tells them apart: it
+is the whole plan the engine was working from, with every patch received so far
+laid over it and nothing yet quantised, so the answer to a patch carries every
+value the patch set and an earlier announcement carries the old ones.
+`EngineClient` takes an `applied` as the answer to a plan only when it does
+(`answers()` in `driver/engine-client.js`). Matching by order alone told the
+plugin the default span was in force while the engine swept the requested one,
+and every sweep was then dropped as being on the wrong grid — a device that
+starts and never draws a trace.
+
 **`applied` is what the plugin echoes to SoundBase.** The engine quantises what
 it was asked for — the span onto the output grid, the RBW onto what the FFT can
 realise, the gain to an integer within the profile's window — and its answer is
