@@ -114,14 +114,31 @@ test('open() reports what this radio can do', async () => {
   const controls = Object.fromEntries(caps.controls.map((c) => [c.id, c]));
   assert.deepEqual(Object.keys(controls).sort(), [
     'antenna',
+    'averaging',
     'detector',
     'dwell',
     'gainDb',
     'gainMode',
     'imageReject',
+    'overlay',
     'profile',
     'refLevelDbm',
+    'spurMask',
+    'window',
   ]);
+  assert.equal(controls.overlay.type, 'checkbox');
+  assert.equal(controls.overlay.default, false);
+  // averaging is offered as a ratio, with string ids because that is what a
+  // form's dropdown hands back; it starts where the engine does, RBW ÷ 10
+  assert.deepEqual(
+    controls.averaging.choices.map((c) => c.id),
+    ['1', '3', '10', '30', '100', '300']
+  );
+  assert.equal(controls.averaging.default, '10');
+  assert.ok(controls.dwell.choices.some((c) => c.id === 'long'));
+  assert.equal(controls.window.default, 'bh4');
+  assert.equal(controls.spurMask.type, 'checkbox');
+  assert.equal(controls.spurMask.default, true);
   assert.equal(controls.imageReject.type, 'checkbox');
   assert.equal(controls.imageReject.default, true);
   assert.ok(controls.gainDb.max <= 76);
@@ -282,6 +299,168 @@ test('the control wins over the field when one patch carries both', async () => 
   }
 });
 
+// Averaging is a ratio on the form and a video bandwidth in the engine, so the
+// echo has to come back through the engine's own clamp: `resolved.vbwHz` is
+// the bandwidth in force, and the control is the choice that bandwidth is.
+test('averaging is a ratio of the RBW, clamped to its choices', async () => {
+  const thirty = await configure({ rbwHz: 25_000, controls: { averaging: '30' } });
+  assert.equal(thirty.status, 200);
+  assert.equal(thirty.body.controls.averaging, '30');
+  assert.ok(Math.abs(thirty.body.resolved.vbwHz - 25_000 / 30) < 1);
+
+  // the ratio is what the user set, so it is what survives a new RBW
+  const wide = await configure({ rbwHz: 100_000 });
+  assert.equal(wide.body.controls.averaging, '30');
+  assert.ok(Math.abs(wide.body.resolved.vbwHz - 100_000 / 30) < 1);
+
+  // outside the choices is snapped to one, never refused; a number is as good
+  // as its string
+  const high = await configure({ controls: { averaging: 5000 } });
+  assert.equal(high.status, 200);
+  assert.equal(high.body.controls.averaging, '300');
+  const low = await configure({ controls: { averaging: 0 } });
+  assert.equal(low.body.controls.averaging, '1');
+  assert.equal(low.body.resolved.vbwHz, 100_000, 'no averaging is VBW = RBW');
+  const between = await configure({ controls: { averaging: 40 } });
+  assert.equal(between.body.controls.averaging, '30');
+  // and something that is not a number at all leaves it where it was
+  const junk = await configure({ controls: { averaging: 'lots' } });
+  assert.equal(junk.status, 200);
+  assert.equal(junk.body.controls.averaging, '30');
+
+  await configure({ rbwHz: 25_000, controls: { averaging: '10' } });
+});
+
+test('dwell, averaging, window and spur masking each leave the others in force', async () => {
+  const { createSpectrumAnalyzerAdapter } = await import('../adapter.js');
+  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, {});
+  const knobs = ({ controls }) => ({
+    dwell: controls.dwell,
+    averaging: controls.averaging,
+    window: controls.window,
+    spurMask: controls.spurMask,
+  });
+  try {
+    await adapter.open();
+    const defaults = await adapter.applyConfig({});
+    assert.deepEqual(knobs(defaults), {
+      dwell: 'coordination',
+      averaging: '10',
+      window: 'bh4',
+      spurMask: true,
+    });
+
+    const set = { dwell: 'long', averaging: '100', window: 'hann', spurMask: false };
+    assert.deepEqual(knobs(await adapter.applyConfig({ controls: set })), set);
+    // a patch carrying one control, and one carrying none
+    const one = await adapter.applyConfig({ controls: { detector: 'peak' } });
+    assert.equal(one.controls.detector, 'peak');
+    assert.deepEqual(knobs(one), set);
+    assert.deepEqual(knobs(await adapter.applyConfig({ startHz: 500e6, stopHz: 540e6 })), set);
+    for (const [id, value] of [
+      ['dwell', 'fast'],
+      ['averaging', '3'],
+      ['window', 'bh4'],
+      ['spurMask', true],
+    ]) {
+      set[id] = value;
+      assert.deepEqual(knobs(await adapter.applyConfig({ controls: { [id]: value } })), set);
+    }
+    // a value that is not one of the choices is not a change
+    const junk = await adapter.applyConfig({
+      controls: { dwell: 'forever', window: 'kaiser', spurMask: 'no', averaging: null },
+    });
+    assert.deepEqual(knobs(junk), set);
+
+    // An RBW change on its own carries the ratio with it: the engine holds a
+    // bandwidth in hertz, and left alone that would turn 3× into 6×.
+    const rbw = await adapter.applyConfig({ rbwHz: 50_000 });
+    assert.equal(rbw.controls.averaging, '3');
+    assert.ok(Math.abs(rbw.resolved.vbwHz - 50_000 / 3) < 1);
+
+    // The contract's own `vbwHz` is honoured when the control is not in the
+    // patch, shows up on the control, and loses to it when both arrive.
+    const field = await adapter.applyConfig({ vbwHz: 5_000 });
+    assert.equal(field.controls.averaging, '10');
+    const both = await adapter.applyConfig({ vbwHz: 50_000, controls: { averaging: '300' } });
+    assert.equal(both.controls.averaging, '300');
+    // a video bandwidth wider than the RBW is the engine's to clamp
+    const over = await adapter.applyConfig({ vbwHz: 200_000 });
+    assert.equal(over.controls.averaging, '1');
+  } finally {
+    await adapter.close();
+  }
+});
+
+// The engine sends the averaged trace and the detector's own in every frame.
+// With the overlay on, the one that is not the primary trace goes to the shell
+// as a named series — `onTrace`'s second argument, which a shell that predates
+// series ignores, so this is checked at the adapter rather than over HTTP.
+test('the overlay reports the frame’s other curve as a named series', async () => {
+  const { createSpectrumAnalyzerAdapter } = await import('../adapter.js');
+  const adapter = createSpectrumAnalyzerAdapter({ id: DEVICE_ID, config: {} }, {});
+  const sweeps = [];
+  const nextSweep = async () => {
+    sweeps.length = 0;
+    const deadline = Date.now() + 5000;
+    while (sweeps.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.ok(sweeps.length > 0, 'no sweep arrived');
+    return sweeps.at(-1);
+  };
+  const mean = (values) => values.reduce((a, b) => a + b, 0) / values.length;
+  try {
+    await adapter.open();
+    const off = await adapter.applyConfig({ startHz: START_HZ, stopHz: STOP_HZ });
+    assert.equal(off.controls.overlay, false);
+    await adapter.startSweep((...args) => sweeps.push(args));
+    assert.equal((await nextSweep()).length, 1, 'off: the trace and nothing else');
+
+    const on = await adapter.applyConfig({ controls: { overlay: true } });
+    assert.equal(on.controls.overlay, true);
+    const [rms, series] = await nextSweep();
+    assert.equal(series.length, 1);
+    assert.equal(series[0].name, 'Peak');
+    assert.equal(series[0].amplitudesDbm.length, rms.length);
+    assert.equal(rms.length, POINT_COUNT);
+    assert.ok(mean(series[0].amplitudesDbm) > mean(rms), 'peak sits above the average');
+
+    // under any other detector the primary is that detector and the series is RMS
+    const peak = await adapter.applyConfig({ controls: { detector: 'peak' } });
+    assert.equal(peak.controls.overlay, true, 'another control leaves it in force');
+    const [primary, under] = await nextSweep();
+    assert.equal(under[0].name, 'RMS');
+    assert.ok(mean(under[0].amplitudesDbm) < mean(primary));
+
+    // not a boolean is not a change
+    assert.equal((await adapter.applyConfig({ controls: { overlay: 'yes' } })).controls.overlay, true);
+    await adapter.applyConfig({ controls: { overlay: false } });
+    assert.equal((await nextSweep()).length, 1);
+  } finally {
+    await adapter.stopSweep();
+    await adapter.close();
+  }
+});
+
+// Long dwell and heavy averaging make sweeps the host would otherwise take
+// for a stall. Ordinary sweeps say nothing and the host learns their rate.
+test('a sweep slow enough to look like a stall says how long it takes', async () => {
+  const quick = await configure({ controls: { dwell: 'coordination' } });
+  assert.equal(quick.body.resolved?.sweepTimeMs, undefined);
+
+  const slow = await configure({
+    startHz: 70_000_000,
+    stopHz: 6_000_000_000,
+    controls: { dwell: 'long' },
+  });
+  assert.equal(slow.status, 200);
+  assert.equal(slow.body.controls.dwell, 'long');
+  assert.ok(slow.body.resolved.sweepTimeMs > 2000, `said ${slow.body.resolved.sweepTimeMs} ms`);
+
+  await configure({ controls: { dwell: 'coordination' } });
+});
+
 test('sweeping produces a spectrum on the acquisition grid', async (t) => {
   await configure({ rbwHz: 25_000 });
   const started = await request('POST', `${DEVICE_PATH}/sweep/start`);
@@ -344,6 +523,39 @@ test('max-hold catches a transient nobody polled for', async (t) => {
   const at = indexOf(TRANSIENT_HZ);
   const held = Math.max(...trace.body.amplitudesDbm.slice(at - 1, at + 2));
   assert.ok(held > -70, `the transient never accumulated (peak ${held} dBm)`);
+});
+
+// 576 MHz is 18 × 32 MHz in the fake's scene, with nothing else near it. The
+// engine fills that cell from its neighbours unless told not to, which hides
+// the spur and anything else sitting exactly there.
+test('internal spurs are masked unless the host asks to see them', async (t) => {
+  const SPUR_HZ = 576_000_000;
+  const settings = { rbwHz: 25_000, traceMode: 'clear-write' };
+  await configure({ ...settings, controls: { spurMask: true } });
+  await request('POST', `${DEVICE_PATH}/sweep/start`);
+  t.after(async () => {
+    await request('POST', `${DEVICE_PATH}/sweep/stop`);
+    await configure({ controls: { spurMask: true } });
+  });
+
+  // Two polls: whatever the shell was holding, then the sweep after it —
+  // which can only have been made under the configuration just applied.
+  const levelNow = async () => {
+    const held = await request('GET', `${DEVICE_PATH}/trace`);
+    const { body } = await request(
+      'GET',
+      `${DEVICE_PATH}/trace?sinceSweepId=${held.body.sweepId}`
+    );
+    return body.amplitudesDbm[indexOf(SPUR_HZ)];
+  };
+
+  const masked = await levelNow();
+  assert.ok(masked < -95, `the masked cell read ${masked} dBm`);
+
+  const off = await configure({ ...settings, controls: { spurMask: false } });
+  assert.equal(off.body.controls.spurMask, false);
+  const shown = await levelNow();
+  assert.ok(shown > -90, `the spur did not appear with masking off (${shown} dBm)`);
 });
 
 test('the device closes cleanly and is discovered again', async () => {

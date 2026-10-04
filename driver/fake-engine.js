@@ -11,7 +11,8 @@
 //   SB_USRP_MOCK=1 npm start
 //
 // What it does not model: RBW realisation (it echoes what you asked for),
-// LO-hop timing, gain settling and calibration. Levels are a plausible UHF
+// LO-hop timing (sweeps arrive at a fixed rate, whatever it predicts), gain
+// settling and calibration. Levels are a plausible UHF
 // scene, not a measurement of anything.
 
 import net from 'node:net';
@@ -42,6 +43,13 @@ const SCENE = [
 const TRANSIENT = { hz: 542.1e6, levelDbm: -52, everyNth: 7 };
 /** Internal spurs the engine masks out and interpolates across. */
 const SPURS_HZ = [480e6, 512e6, 544e6, 576e6, 608e6];
+/** What one of them reads when the plan turns the masking off. */
+const SPUR_DBM = -85;
+/** Fewest spectra a sub-window averages, by dwell: the engine's 0 / 10 / 25 / 100 ms. */
+const DWELL_MIN_AVERAGES = { fast: 1, coordination: 31, hq: 78, long: 312 };
+/** One LO position's kept bandwidth and dead time, as on usb3-56. */
+const HOP_HZ = 48e6;
+const HOP_DEAD_MS = 7;
 
 const DEFAULT_PLAN = {
   startHz: 470e6,
@@ -57,6 +65,7 @@ const DEFAULT_PLAN = {
   antenna: 'RX2',
   interleave: false,
   imageReject: false,
+  spurMask: true,
   mode: 'continuous',
   window: 'bh4',
   analogBwHz: 0,
@@ -219,10 +228,15 @@ function applyPlan(patch) {
   const warnings = [];
   merged.startHz = Math.min(Math.max(merged.startHz, 70e6), 6e9);
   merged.stopHz = Math.min(Math.max(merged.stopHz, merged.startHz + 1e6), 6e9);
+  // the engine's own rule: no narrower than RBW / 1000, no wider than the RBW
+  if (!(merged.vbwHz > 0)) merged.vbwHz = merged.rbwHz / 10;
   if (merged.vbwHz > merged.rbwHz) {
     merged.vbwHz = merged.rbwHz;
     warnings.push('vbwHz limited to rbwHz');
   }
+  merged.vbwHz = Math.max(merged.vbwHz, merged.rbwHz / 1000);
+  if (!(merged.dwell in DWELL_MIN_AVERAGES)) merged.dwell = 'coordination';
+  merged.window = merged.window === 'hann' ? 'hann' : 'bh4';
   plan = merged;
   grid = snapToGrid(plan.startHz, plan.stopHz, plan.rbwHz);
   if (Math.abs(grid.startHz - plan.startHz) > 1e-6) {
@@ -240,7 +254,25 @@ function applyPlan(patch) {
   if (sweeping) startSweeping();
 }
 
+/** Spectra averaged per sub-window: RBW ÷ VBW, or the dwell's minimum if that is more. */
+function averagesFor(p) {
+  const fromVbw = Math.min(1000, Math.max(1, Math.round(p.rbwHz / p.vbwHz)));
+  return Math.max(fromVbw, DWELL_MIN_AVERAGES[p.dwell] ?? DWELL_MIN_AVERAGES.coordination);
+}
+
+/**
+ * The sweep time the engine would predict: LO positions across the span, each
+ * its dead time plus a capture that grows with the averaging. The fake's own
+ * sweeps keep arriving every SWEEP_MS regardless.
+ */
+function predictedSweepMs(p, nAvg) {
+  const hops = Math.max(1, Math.ceil((grid.stopHz - grid.startHz) / HOP_HZ));
+  const captureMs = (10 * nAvg) / DWELL_MIN_AVERAGES.coordination;
+  return Math.max(SWEEP_MS, hops * (HOP_DEAD_MS + captureMs));
+}
+
 function appliedPlan() {
+  const nAvg = averagesFor(plan);
   return {
     ...plan,
     startHz: grid.startHz,
@@ -252,7 +284,8 @@ function appliedPlan() {
     gainCapDb: 60,
     gainStartDb: 30,
     loGridAutoShiftHz: 0,
-    predictedSweepMs: SWEEP_MS,
+    nAvg,
+    predictedSweepMs: predictedSweepMs(plan, nAvg),
     predictedSigmaDb: 0.6,
   };
 }
@@ -340,9 +373,17 @@ function emitSweep() {
     const dbm = 10 * Math.log10(powerMw);
     avg[i] = dbm - kDbm;
     peak[i] = dbm - kDbm + 1.5;
+    // Masked, a spur's cells are flagged and read like their neighbours;
+    // unmasked, the cell on the spur reads the spur.
     for (const spur of SPURS_HZ) {
-      if (Math.abs(f - spur) <= Math.max(stepHz, GRID_MAX_STEP_HZ)) {
-        mask[i] = MaskBit.spur | MaskBit.interpolated;
+      if (plan.spurMask !== false) {
+        if (Math.abs(f - spur) <= Math.max(stepHz, GRID_MAX_STEP_HZ)) {
+          mask[i] = MaskBit.spur | MaskBit.interpolated;
+        }
+      } else if (Math.abs(f - spur) < stepHz / 2) {
+        const withSpur = 10 * Math.log10(10 ** (dbm / 10) + 10 ** (SPUR_DBM / 10));
+        avg[i] = withSpur - kDbm;
+        peak[i] = withSpur - kDbm + 1.5;
       }
     }
   }

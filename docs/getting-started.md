@@ -186,8 +186,9 @@ exports. Anything you are tempted to put there belongs in `adapter.js`.
 
 Device controls are the part worth understanding first, because they are how a
 device gets a knob SoundBase has never heard of without a SoundBase release.
-This plugin declares six of them — gain mode, RX gain, dwell, detector, antenna
-port and acquisition profile — and the whole mechanism is visible in three
+This plugin declares twelve of them — reference level, gain mode, RX gain,
+dwell, averaging, detector, the peak-and-RMS overlay, FFT window, antenna
+port, image rejection, spur masking and acquisition profile — and the whole mechanism is visible in three
 places in `adapter.js`.
 
 **Declared from `open()`**, not from the manifest, so the ranges can come from
